@@ -2,9 +2,10 @@
 // so tests can swap in a fake.
 
 import { askJson } from "../claude/headless.js";
+import type { ModelId } from "../claude/models.js";
 import type { Judge, JustificationReview, SummaryReview, Verdict } from "./judge.js";
 
-export type Ask = <T>(req: { system: string; prompt: string; schema: object }) => Promise<T>;
+export type Ask = <T>(req: { system: string; prompt: string; schema: object; model?: ModelId }) => Promise<T>;
 
 const VERDICT_SCHEMA = {
   type: "object",
@@ -31,7 +32,8 @@ Feedback: one short sentence, addressed to the learner as "you". If you reject, 
 const toVerdict = (v: { ok: boolean; feedback: string }): Verdict =>
   v.ok ? { ok: true, feedback: v.feedback } : { ok: false, feedback: v.feedback || "Not specific enough." };
 
-export function createClaudeJudge(ask: Ask = askJson): Judge {
+/** `model` is read on every check, so changing the setting applies right away. */
+export function createClaudeJudge(ask: Ask = askJson, model: () => Promise<ModelId> | ModelId = () => "auto"): Judge {
   return {
     async reviewJustification(r: JustificationReview) {
       const prompt = [
@@ -41,11 +43,11 @@ export function createClaudeJudge(ask: Ask = askJson): Judge {
         `Scope: ${r.scope}`,
         `Justification: ${r.justification}`,
       ].join("\n");
-      return toVerdict(await ask({ system: JUSTIFICATION_SYSTEM, prompt, schema: VERDICT_SCHEMA }));
+      return toVerdict(await ask({ system: JUSTIFICATION_SYSTEM, prompt, schema: VERDICT_SCHEMA, model: await model() }));
     },
     async reviewSummary(r: SummaryReview) {
       const prompt = [`Action: ${r.kind}`, `Branch: ${r.title}`, `Scope: ${r.scope}`, `Summary: ${r.summary}`].join("\n");
-      return toVerdict(await ask({ system: SUMMARY_SYSTEM, prompt, schema: VERDICT_SCHEMA }));
+      return toVerdict(await ask({ system: SUMMARY_SYSTEM, prompt, schema: VERDICT_SCHEMA, model: await model() }));
     },
   };
 }

@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { modelArgs, type ModelId } from "./models.js";
 
 const RUN_DIR = path.join(os.tmpdir(), "tangent-graph-claude");
 const TIMEOUT_MS = 180_000;
@@ -76,13 +77,15 @@ export interface ChatRequest {
   message: string;
   /** Continue this Claude session; omit to start a new one. */
   sessionId?: string;
+  /** Which model to use; "auto" or omitted lets Claude Code decide. */
+  model?: ModelId;
   signal?: AbortSignal;
 }
 
 /** Streams a reply. Calls onDelta with text as it arrives. Resolves with the session id to reuse. */
 export async function streamChat(req: ChatRequest, onDelta: (text: string) => void): Promise<{ sessionId: string }> {
   const id = req.sessionId ?? randomUUID();
-  const args = [...BASE_ARGS, "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+  const args = [...BASE_ARGS, ...modelArgs(req.model), "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     "--system-prompt", req.system, ...(req.sessionId ? ["--resume", id] : ["--session-id", id])];
   let error: string | null = null, gotText = false;
   const { code, err } = await run(args, req.message, {
@@ -105,8 +108,8 @@ export async function streamChat(req: ChatRequest, onDelta: (text: string) => vo
 }
 
 /** One structured answer, validated by Claude Code against `schema`. Not saved as a session. */
-export async function askJson<T>(req: { system: string; prompt: string; schema: object }): Promise<T> {
-  const { out } = await run([...BASE_ARGS, "--output-format", "json", "--no-session-persistence",
+export async function askJson<T>(req: { system: string; prompt: string; schema: object; model?: ModelId }): Promise<T> {
+  const { out } = await run([...BASE_ARGS, ...modelArgs(req.model), "--output-format", "json", "--no-session-persistence",
     "--system-prompt", req.system, "--json-schema", JSON.stringify(req.schema)], req.prompt);
   let r: any;
   try { r = JSON.parse(out); } catch { throw new Error("Claude's reply wasn't readable."); }

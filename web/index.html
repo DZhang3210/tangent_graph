@@ -334,6 +334,13 @@
   .box .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .scopechip { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar-r { display: flex; align-items: center; gap: 6px; flex: none; }
+  .modelbtn { display: flex; align-items: center; gap: 3px; height: 26px; font: inherit; font-size: 12px; color: var(--muted);
+    background: none; border: 0; border-radius: 7px; padding: 0 6px 0 8px; cursor: pointer; white-space: nowrap; }
+  .modelbtn:hover { color: var(--text); background: var(--hover); }
+  .modelbtn svg { width: 12px; height: 12px; }
+  #menu .menu-head { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--faint); padding: 6px 8px 4px; }
+  #menu button small { display: block; font-size: 11px; color: var(--faint); }
   .send { flex: none; width: 36px; height: 36px; border-radius: 11px; border: 0; cursor: pointer;
     display: grid; place-items: center; background: var(--text); color: var(--bg); }
   .send svg { width: 18px; height: 18px; }
@@ -822,6 +829,31 @@ async function checkClaude() {
   }
 }
 
+// ---- Model choice (saved on the server, used for chat, side questions and the judge) ----
+let appSettings = { model: "auto" }, MODEL_LIST = [{ id: "auto", label: "Auto", hint: "Claude Code's default" }];
+const modelLabel = () => (MODEL_LIST.find(m => m.id === appSettings.model) || MODEL_LIST[0]).label;
+async function loadSettings() {
+  try { const r = await api("/api/settings"); appSettings = r.settings; MODEL_LIST = r.models; } catch {}
+}
+async function setModel(id) {
+  try {
+    const r = await api("/api/settings", { model: id });
+    appSettings = r.settings;
+    if (graph.id) draw();
+    toast(`Using ${modelLabel()} for chat, side questions and checks.`);
+  } catch (e) { toast(e.message); }
+}
+function openModelMenu(btn) {
+  const r = btn.getBoundingClientRect();
+  menu.innerHTML = `<div class="menu-head">Model</div>` + MODEL_LIST.map(m =>
+    `<button data-m="${m.id}"><span>${esc(m.label)}${m.hint ? `<small>${esc(m.hint)}</small>` : ""}</span><kbd>${m.id === appSettings.model ? "✓" : ""}</kbd></button>`).join("");
+  menu.querySelectorAll("button").forEach(b => b.onclick = () => { closeMenu(); setModel(b.dataset.m); });
+  menu.hidden = false;
+  // Open upward from the reply box, kept on screen.
+  menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + "px";
+  menu.style.top = Math.max(8, r.top - menu.offsetHeight - 6) + "px";
+}
+
 // Minimal markdown for Claude's replies: fenced code, inline code, bold, paragraphs.
 function md(s) {
   return s.split(/```[^\n]*\n?([\s\S]*?)(?:```|$)/g).map((part, i) => {
@@ -881,6 +913,8 @@ function composerHTML(n) {
     <textarea rows="1" placeholder="Reply…"></textarea>
     <div class="bar"><span class="scopechip" title="${esc(n.scope)}">Scope: ${esc(n.scope)}</span>
       <div class="bar-r">
+        <button class="modelbtn" type="button" onclick="openModelMenu(this)" title="Model for chat, side questions and checks">${esc(modelLabel())}
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button>
         ${n.id === graph.cursor ? `<button class="tbtn" type="button" onclick="openResolve()" title="${n.parent ? "End this branch (r)" : "Close the main task (r)"}" aria-label="End">${FLAG}</button>
           <button class="tbtn" type="button" onclick="openFork()" title="Fork a tangent (f)" aria-label="Fork a tangent">${BRANCH}</button>` : ""}
         <button class="send" onclick="send(document.querySelector('#composer textarea').value)" aria-label="Send">
@@ -1271,6 +1305,7 @@ function openNewTask() {
 // Show a graph from the server and land on `target` (defaults to its cursor) in one step,
 // so back-history doesn't record a stop at the cursor on the way.
 function enterGraph(g, target) {
+  home.hidden = true;
   setGraph(g);
   folded.clear(); hiddenIds.clear(); toggleSQ(false);
   const to = target && byId[target] ? target : graph.cursor;
@@ -1360,6 +1395,10 @@ function commands() {
     { label: "Show details", key: "o", run: () => { aboutOpen = true; draw(); } },
     { label: hideResolved ? "Show resolved branches" : "Hide resolved branches", key: "H", run: () => toggleResolved() },
     { label: "Toggle sidebar", key: "\\", run: () => toggleSide() },
+    ...MODEL_LIST.map(m => ({
+      label: `Use ${m.label}`, sub: m.id === appSettings.model ? "Current model" : (m.hint || "Model for chat and checks"),
+      why: m.id === appSettings.model ? "Already in use." : null, run: () => setModel(m.id),
+    })),
     { label: "All main tasks", key: "m", run: () => openHome() },
     { label: "New main task", run: () => openNewTask() },
     ...tasks.filter(t => t.id !== graph.id).map(t => ({
@@ -1531,6 +1570,7 @@ async function start() {
     return;
   }
   checkClaude();
+  loadSettings().then(() => { if (graph.id) draw(); });
   try {
     await refreshTasks();
     const { graph: g } = await api("/api/graph");

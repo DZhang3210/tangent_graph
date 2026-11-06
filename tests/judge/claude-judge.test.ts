@@ -29,6 +29,16 @@ describe("Claude judge", () => {
     expect((ask as any).mock.calls[0][0].prompt).toContain("Action: defer");
   });
 
+  it("asks with the currently chosen model", async () => {
+    const ask = vi.fn(async () => ({ ok: true, feedback: "" })) as unknown as Ask;
+    let model: "auto" | "claude-haiku-5-5" = "auto";
+    const judge = createClaudeJudge(ask, () => model);
+    await judge.reviewJustification(review);
+    model = "claude-haiku-5-5";
+    await judge.reviewJustification(review);
+    expect((ask as any).mock.calls.map((c: any[]) => c[0].model)).toEqual(["auto", "claude-haiku-5-5"]);
+  });
+
   it("lets a failed Claude call surface as an error, not a verdict", async () => {
     const ask = (async () => { throw new Error("not signed in"); }) as unknown as Ask;
     await expect(createClaudeJudge(ask).reviewJustification(review)).rejects.toThrow("not signed in");

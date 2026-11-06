@@ -5,9 +5,9 @@
 
 import http from "node:http";
 import path from "node:path";
-import { claudeStatus, findClaude, streamChat } from "../claude/headless.js";
+import { askJson, claudeStatus, findClaude, streamChat } from "../claude/headless.js";
 import { createClaudeJudge, stubJudge } from "../judge/index.js";
-import { jsonChatStore, jsonStore } from "../persistence/index.js";
+import { jsonChatStore, jsonSettingsStore, jsonStore } from "../persistence/index.js";
 import { createService, systemCtx } from "../service/index.js";
 import { createApp } from "./app.js";
 
@@ -16,10 +16,13 @@ const port = Number(process.env.PORT) || 5179;
 const useStub = process.env.TANGENT_JUDGE === "stub";
 
 const store = jsonStore(dataDir);
+const settings = jsonSettingsStore(dataDir);
+const judge = useStub ? stubJudge : createClaudeJudge(askJson, async () => (await settings.get()).model);
 const app = createApp({
-  service: createService({ store, judge: useStub ? stubJudge : createClaudeJudge(), ctx: systemCtx }),
+  service: createService({ store, judge, ctx: systemCtx }),
   store,
   chats: jsonChatStore(dataDir),
+  settings,
   claude: { status: claudeStatus, streamChat },
 });
 

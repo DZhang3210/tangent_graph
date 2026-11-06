@@ -2,12 +2,12 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubJudge, type Judge } from "../../src/judge/index.js";
-import { memoryChatStore, memoryStore } from "../../src/persistence/index.js";
+import { memoryChatStore, memorySettingsStore, memoryStore } from "../../src/persistence/index.js";
 import { createApp, type ClaudeBridge } from "../../src/server/app.js";
 import { createService } from "../../src/service/index.js";
 import { branchInput, makeCtx, rootInput } from "../core/helpers.js";
 
-let server: http.Server, base: string, calls: { system: string; message: string; sessionId?: string }[];
+let server: http.Server, base: string, calls: { system: string; message: string; sessionId?: string; model?: string }[];
 
 function start(judge: Judge = stubJudge) {
   const store = memoryStore(), chats = memoryChatStore();
@@ -15,13 +15,13 @@ function start(judge: Judge = stubJudge) {
   const claude: ClaudeBridge = {
     status: async () => ({ loggedIn: true }),
     streamChat: async (req, onDelta) => {
-      calls.push({ system: req.system, message: req.message, ...(req.sessionId ? { sessionId: req.sessionId } : {}) });
+      calls.push({ system: req.system, message: req.message, ...(req.sessionId ? { sessionId: req.sessionId } : {}), ...(req.model ? { model: req.model } : {}) });
       onDelta("Hello ");
       onDelta("there.");
       return { sessionId: req.sessionId ?? "session-1" };
     },
   };
-  const app = createApp({ service: createService({ store, judge, ctx: makeCtx() }), store, chats, claude });
+  const app = createApp({ service: createService({ store, judge, ctx: makeCtx() }), store, chats, settings: memorySettingsStore(), claude });
   server = http.createServer(app);
   return new Promise<void>(r => server.listen(0, "127.0.0.1", () => {
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -131,6 +131,20 @@ describe("server", () => {
     const { results } = await (await get("/api/search?q=.subscribe")).json().then(any);
     expect(results.map((r: { src: string }) => r.src).sort()).toEqual(["Note", "You"]);
     expect(results[0]).toMatchObject({ graphId: graph.id, nodeId: graph.rootId });
+  });
+
+  it("saves the model choice and uses it for chats", async () => {
+    const initial = await get("/api/settings").then(r => r.json()).then(any);
+    expect(initial.settings).toEqual({ model: "auto" });
+    expect(initial.models.map((m: { label: string }) => m.label)).toContain("Opus 5.5");
+
+    expect((await post("/api/settings", { model: "gpt-9" })).status).toBe(400);
+
+    expect((await post("/api/settings", { model: "claude-opus-5-5" }).then(r => r.json()).then(any)).settings.model).toBe("claude-opus-5-5");
+    const { graph } = await post("/api/tasks", rootInput).then(r => r.json()).then(any);
+    await sse(await post(`/api/chat/${graph.rootId}`, { message: "hi" }));
+    await sse(await post("/api/side", { nodeId: graph.rootId, message: "q" }));
+    expect(calls.map(c => c.model)).toEqual(["claude-opus-5-5", "claude-opus-5-5"]);
   });
 
   it("rejects unknown routes and bad JSON", async () => {

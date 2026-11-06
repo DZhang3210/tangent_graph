@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import type { Graph, GraphNode, NodeId, Result } from "../core/index.js";
 import type { ChatRequest } from "../claude/headless.js";
 import { sideSystem, tutorSystem, withHistory } from "../chat/prompts.js";
-import type { ChatStore, GraphStore } from "../persistence/index.js";
+import { MODELS, isModelId } from "../claude/models.js";
+import type { ChatStore, GraphStore, SettingsStore } from "../persistence/index.js";
 import { describeServiceError, type Service, type ServiceError } from "../service/index.js";
 
 export interface ClaudeBridge {
@@ -20,6 +21,7 @@ export interface AppDeps {
   service: Service;
   store: GraphStore;
   chats: ChatStore;
+  settings: SettingsStore;
   claude: ClaudeBridge;
   /** Folder with index.html. Defaults to <repo>/web. */
   webRoot?: string;
@@ -65,7 +67,7 @@ function sse(res: ServerResponse) {
 }
 
 export function createApp(deps: AppDeps) {
-  const { service, store, chats, claude } = deps;
+  const { service, store, chats, settings, claude } = deps;
   const webRoot = deps.webRoot ?? DEFAULT_WEB;
 
   const reply = async (res: ServerResponse, r: Promise<Result<Graph, ServiceError>>) => {
@@ -138,6 +140,7 @@ export function createApp(deps: AppDeps) {
         system: tutorSystem(g, nodeId),
         message: log.sessionId ? message : withHistory(log.messages, message),
         ...(log.sessionId ? { sessionId: log.sessionId } : {}),
+        model: (await settings.get()).model,
         signal: abort.signal,
       }, t => { text += t; emit("delta", { text: t }); });
       const at = new Date().toISOString();
@@ -160,7 +163,7 @@ export function createApp(deps: AppDeps) {
     const abort = new AbortController();
     res.on("close", () => abort.abort());
     try {
-      const r = await claude.streamChat({ system: sideSystem(g, nodeId, quote), message, ...(sessionId ? { sessionId } : {}), signal: abort.signal },
+      const r = await claude.streamChat({ system: sideSystem(g, nodeId, quote), message, ...(sessionId ? { sessionId } : {}), model: (await settings.get()).model, signal: abort.signal },
         t => emit("delta", { text: t }));
       emit("done", { sessionId: r.sessionId });
     } catch (e) { emit("error", { message: (e as Error).message }); }
@@ -177,6 +180,12 @@ export function createApp(deps: AppDeps) {
         return res.end(await readFile(path.join(webRoot, "index.html")));
       }
       if (m === "GET" && p === "/api/health") return json(res, 200, { claude: await claude.status() });
+      if (m === "GET" && p === "/api/settings") return json(res, 200, { settings: await settings.get(), models: MODELS });
+      if (m === "POST" && p === "/api/settings") {
+        const b = await body(req);
+        if (b.model !== undefined && !isModelId(b.model)) throw new HttpError(400, `Unknown model "${String(b.model)}".`);
+        return json(res, 200, { settings: await settings.update(isModelId(b.model) ? { model: b.model } : {}), models: MODELS });
+      }
       if (m === "GET" && p === "/api/tasks") return json(res, 200, await taskSummaries());
       if (m === "POST" && p === "/api/tasks") {
         const b = await body(req);
