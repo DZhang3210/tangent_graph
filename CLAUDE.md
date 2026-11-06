@@ -11,18 +11,23 @@ If a rule there is ambiguous, ask instead of inventing behavior.
 ```
 src/
   core/         Pure domain logic. Types, operations, typed errors. No I/O.
-  judge/        Judge interface for reasoning checks + StubJudge (always approves).
-  persistence/  Load/save graphs as JSON files in data/. The only code that touches disk.
-  service/      Wires it together: load → validate → judge → apply → save.
+  judge/        Judge interface for reasoning checks: StubJudge (always approves) and
+                the Claude-backed judge.
+  claude/       The only code that runs Claude Code (`claude -p`, headless, no tools).
+  chat/         Chat prompts: what Claude is told about a node. Pure.
+  persistence/  Graphs (data/graphs/), the active task (data/active.json) and chat
+                transcripts (data/chats/). The only code that reads or writes data/.
+  service/      Wires it together: load → core op → judge → save.
+  server/       Local HTTP API + static UI. `npm run dev`.
   cli/          Tiny command-line front end over the service.
+web/            The UI: one HTML file, no build step. Talks only to src/server.
 tests/          Vitest tests, mirroring src/.
-prototype/      UI prototype (single HTML file) + a local server bridging to Claude Code.
-                Not part of the core build; kept as the reference for milestone 2.
-data/           Your graphs (git-ignored).
+data/           Your graphs and chats (git-ignored).
 ```
 
-Dependencies only point inward: `cli → service → (core, judge, persistence)`, and
-`persistence → core` for types. **`core` imports nothing outside `core`.**
+Dependencies only point inward: `server, cli → service → (core, judge, persistence)`;
+`judge, server → claude`; everything else → `core` for types.
+**`core` imports nothing outside `core`.**
 
 ## The core must stay pure
 
@@ -56,8 +61,18 @@ npm test              # run all tests once (Vitest)
 npm run test:watch    # re-run on change
 npm run typecheck     # tsc --noEmit
 npm run check         # typecheck + tests; run before every commit
+npm run dev           # the web app at http://localhost:5179
 npm run tg -- <cmd>   # the CLI, e.g. npm run tg -- status
 ```
+
+Environment variables (server and CLI):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `TANGENT_DATA` | `./data` | Where graphs and chats are saved. |
+| `TANGENT_JUDGE` | `claude` | `stub` approves everything without calling Claude (server only; the CLI always uses the stub). |
+| `PORT` | `5179` | Web server port. |
+| `CLAUDE_BIN` | auto | Path to the Claude Code executable, if it isn't found automatically. |
 
 ## Working rules
 
@@ -66,11 +81,13 @@ npm run tg -- <cmd>   # the CLI, e.g. npm run tg -- status
 - Don't change `SPEC.md` rules silently. If code needs a rule to change, say so and update the
   spec in the same commit.
 
-## Running the prototype
+## Claude
 
-```bash
-node prototype/server.mjs   # then open http://localhost:5179
-```
+Chat, side questions and the judge run Claude Code in headless mode through `src/claude/`.
+It must be installed and signed in (`claude auth login`). Calls run with no tools, in an
+empty temp folder, without user customizations, and without inheriting another Claude
+session's environment. If the judge can't reach Claude, the change is blocked
+(`judge-unavailable`), never silently allowed.
 
-It needs Claude Code installed and signed in (`claude auth login`). Opened directly as a file,
-the page runs in offline demo mode.
+In tests, nothing calls Claude: the judge's Claude call and the server's chat bridge are
+injected fakes.

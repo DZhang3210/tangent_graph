@@ -148,8 +148,10 @@ Two checks need reasoning and are made by a **judge**, not by local code:
 1. Is this justification good enough to fork (or continue)?
 2. Is this merge / abandon / defer / close summary substantive?
 
-- The judge is an interface. Milestone 1 ships a stub that always approves.
-  A later milestone implements it with Claude Code in headless mode (`claude -p`).
+- The judge is an interface with two implementations: a stub that always approves, and one
+  backed by Claude Code in headless mode (`claude -p`), used by the web app.
+- If the judge can't answer (Claude not installed, not signed in, network down), the change
+  is **blocked** with `judge-unavailable`. A missing check is never treated as approval.
 - Local validation (non-empty, locks, cursor) runs **first**. The judge is only asked about
   input that already passes every local rule, so a slow or failing judge can never let a
   rule violation through.
@@ -189,8 +191,9 @@ Two checks need reasoning and are made by a **judge**, not by local code:
 4. **Strike reasons.** Optional for now. Required, like resolution summaries?
 5. **Judge strictness.** When the judge rejects, is there ever an override ("fork anyway")?
    Currently: no override; you rewrite and ask again.
-6. **Chat history.** Chat lives with Claude Code sessions today. Should the graph file store the
-   transcript (or a link to the Claude session) per node, so search and export work offline?
+6. ~~**Chat history.**~~ Decided in milestone 2: each node's transcript and its Claude session id
+   are saved in `data/chats/<graph>/<node>.json`, apart from the graph. Chat isn't a domain rule,
+   so it stays out of core. Side questions are never saved.
 7. **Depth or time limits.** Should a branch warn when it's N levels deep or open for N hours?
 8. **Merge summary vs. scope.** Should merging require the judge to confirm the scope was
    actually met, or only that the summary is substantive?
