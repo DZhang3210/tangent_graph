@@ -336,6 +336,12 @@
     display: grid; place-items: center; background: var(--text); color: var(--bg); }
   .send svg { width: 18px; height: 18px; }
   .send:hover { opacity: .88; }
+  /* Short-lived message for errors from actions without their own form */
+  #toast { position: fixed; z-index: 30; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px));
+    background: var(--text); color: var(--bg); font-size: 13px; line-height: 1.45; padding: 9px 14px; border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  #toast[hidden] { display: none; }
+
   /* Claude connection banner + reply rendering */
   #banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted);
     padding: 8px 28px; border-bottom: 1px solid var(--border);
@@ -466,6 +472,7 @@
   <div id="composer"></div>
 </main>
 <div id="menu" hidden></div>
+<div id="toast" role="status" hidden></div>
 <section id="home" hidden>
   <div class="home-in">
     <header class="home-head">
@@ -513,73 +520,57 @@ const BRANCH = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strok
   <circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="5.5" r="1.5"/>
   <path d="M5 5v6M11 7c0 2.5-6 2-6 4"/></svg>`;
 
-let graph = {
-  title: "Why does a ball fall?",
-  cursor: "n5",
-  nodes: [
-    { id: "root", parent: null, title: "Why does a ball fall?", status: "active",
-      scope: "Understand gravity well enough to teach it in Thursday's intro physics lesson.",
-      motivation: "Students keep asking why heavy and light objects land together. I need a clear, honest answer.",
-      created: "Nov 3, 09:12",
-      notes: [
-        { t: "Nov 3, 09:20", text: "Gravity pulls everything with the same acceleration, so mass cancels out." },
-        { t: "Nov 3, 09:41", text: "Feather vs hammer: air resistance is the only reason they differ.", struck: "Too vague. Covered properly by the abandoned air resistance branch." },
-        { t: "Nov 4, 18:05", text: "Idea for later: open the lesson with the moon question." },
-      ] },
-    { id: "n1", parent: "root", title: "Newton's apple reasoning", status: "deferred",
-      scope: "Trace the reasoning steps Newton used, so I can mirror them in the lesson opener.",
-      justification: "His thought process could give me an intuition-first opener instead of starting with formulas.",
-      resolution: "Stopped at the comparison between the apple and the moon. Ran out of time before prep.",
-      created: "Nov 3, 10:02", resolved: "Nov 3, 10:40", notes: [] },
-    { id: "n2", parent: "root", title: "Newton's apple reasoning", seq: 2, continues: "n1", status: "merged",
-      scope: "Finish the apple-to-moon reasoning, so the opener has a complete arc.",
-      justification: "The deferred branch left the key step unfinished, and the opener depends on it.",
-      resolution: "The moon is falling too. Same force, but it moves sideways fast enough to keep missing Earth. Use this as the opener.",
-      created: "Nov 4, 08:30", resolved: "Nov 4, 09:15",
-      notes: [{ t: "Nov 4, 08:52", text: "Cannonball thought experiment makes the jump from apple to moon concrete." }] },
-    { id: "n3", parent: "root", title: "Air resistance", status: "abandoned",
-      scope: "Know how much air changes fall times, so I can answer the feather question.",
-      justification: "If air resistance dominates everyday examples, my demo needs to account for it.",
-      resolution: "Turned into fluid dynamics and drag coefficients. The lesson assumes a vacuum, so this goes too deep.",
-      created: "Nov 4, 09:30", resolved: "Nov 4, 10:10", notes: [] },
-    { id: "n4", parent: "root", title: "Is g the same everywhere?", status: "active",
-      scope: "Know whether 9.8 m/s² needs a caveat, so what I write on the board is accurate.",
-      justification: "If g varies a lot, I have to qualify the number I give students.",
-      created: "Nov 5, 14:00",
-      notes: [{ t: "Nov 5, 14:12", text: "Varies roughly 9.78 to 9.83 m/s² across Earth's surface." }] },
-    { id: "n5", parent: "n4", title: "Earth's shape and gravity", status: "active",
-      scope: "Understand the equator-vs-pole difference, so I can explain the range in one sentence.",
-      justification: "Earth's shape is the main reason g varies, and I need its size to decide if it's worth mentioning.",
-      created: "Nov 5, 14:20",
-      notes: [{ t: "Nov 5, 14:31", text: "Spin flattens Earth. You're further from the center at the equator." }] },
-  ],
-};
+// ---- Data: everything comes from the local server (npm run dev). ----
+// The server's graph is converted into the shape this page renders.
+let graph = { id: null, title: "", cursor: null, rootId: null, status: "active", nodes: [] };
+let tasks = [], activeId = null; // main task summaries for the home screen and switcher
+let byId = {};
+const rootOf = () => byId[graph.rootId];
+const fmt = iso => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).replace(" at", ",") : "";
 
-// Several main tasks, one graph each. Switching rebuilds the lookup table.
-graph.updated = "Nov 5, 14:31";
-// A few more sample main tasks so the home screen has something to show.
-const mk = (id, parent, title, status, extra = {}) =>
-  ({ id, parent, title, status, scope: extra.scope || title, justification: extra.j || "", motivation: extra.m,
-     resolution: extra.res, created: extra.c || "Nov 1, 09:00", notes: [] });
-const graphs = [graph,
-  { title: "Cover letter for a backend role", updated: "Nov 6, 10:12", cursor: "c3", nodes: [
-    mk("c1", null, "Cover letter for a backend role", "active", { scope: "A one-page cover letter for this role, sent by Friday.", m: "Applications close Friday, and this is the job I want most." }),
-    mk("c2", "c1", "Which tools does their backend team use?", "merged", { res: "Go, Postgres and Kafka. I've shipped Go and Postgres, so the letter opens with the billing service project." }),
-    mk("c3", "c1", "What does a strong opening paragraph look like?", "active"),
-  ] },
-  { title: "SQL joins for the sales dashboard", updated: "Nov 4, 16:40", cursor: "s2", nodes: [
-    mk("s1", null, "SQL joins for the sales dashboard", "active", { scope: "Write the query behind the monthly sales-by-region chart.", m: "The dashboard demo is on Monday." }),
-    mk("s2", "s1", "LEFT JOIN vs INNER JOIN", "active"),
-    mk("s3", "s1", "Window functions", "deferred", { res: "Only needed for running totals, which aren't in the first version." }),
-    mk("s4", "s1", "Query planner internals", "abandoned", { res: "Way past what one dashboard query needs." }),
-  ] },
-  { title: "Back up my laptop automatically", updated: "Oct 28, 21:05", cursor: "b1", status: "completed", nodes: [
-    mk("b1", null, "Back up my laptop automatically", "active", { scope: "Nightly backups to an external drive, with one tested restore.", m: "Lost a week of work last month." }),
-    mk("b2", "b1", "Which backup tool to use?", "merged", { res: "Built-in File History; no extra software needed." }),
-  ] },
-];
-let byId = Object.fromEntries(graph.nodes.map(n => [n.id, n]));
-const rootOf = () => graph.nodes.find(n => !n.parent);
+function toUI(g) {
+  const root = g.nodes[g.rootId];
+  return {
+    id: g.id, title: root.title, cursor: g.cursor, rootId: g.rootId, status: root.status,
+    nodes: Object.values(g.nodes).map(n => ({
+      id: n.id, parent: n.parentId, title: n.title, status: n.status, scope: n.scope,
+      justification: n.justification, motivation: n.motivation,
+      resolution: n.resolution?.summary, created: fmt(n.createdAt), resolved: n.resolution ? fmt(n.resolution.at) : "",
+      seq: n.seq, continues: n.continuesFrom,
+      notes: n.notes.map(x => ({ id: x.id, t: fmt(x.createdAt), text: x.text, struck: x.struck ? (x.struck.reason || "no reason given") : undefined })),
+    })),
+  };
+}
+function setGraph(g) {
+  graph = toUI(g);
+  byId = Object.fromEntries(graph.nodes.map(n => [n.id, n]));
+  document.getElementById("gtitle").firstChild.textContent = graph.title;
+}
+
+/** GET (no body) or POST JSON. Throws an Error with the server's message on failure. */
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.message || `Error ${res.status}`), { status: res.status, info: data.error });
+  return data;
+}
+async function refreshTasks() { const r = await api("/api/tasks"); tasks = r.tasks; activeId = r.activeId; }
+
+/** Runs a graph action. On success: re-render and land on the cursor. On failure: show why. */
+async function act(path, body, { quiet = false } = {}) {
+  try {
+    const { graph: g } = await api(path, body);
+    setGraph(g); render(); view(graph.cursor); refreshTasks();
+    return true;
+  } catch (e) { if (!quiet) toast(e.message); throw e; }
+}
+
+const toastEl = () => document.getElementById("toast");
+let toastTimer;
+function toast(msg) {
+  const t = toastEl(); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+}
 const kids = id => graph.nodes.filter(n => n.parent === id);
 const label = n => n.title + (n.seq ? " #" + n.seq : "");
 const openChild = n => kids(n.id).find(c => c.status === "active");
@@ -712,40 +703,19 @@ const closeMenu = () => { menu.hidden = true; };
 document.addEventListener("click", e => { if (!menu.contains(e.target)) closeMenu(); });
 document.addEventListener("wheel", closeMenu, { passive: true });
 
-const STATUS = { active: "Active", merged: "Merged", abandoned: "Abandoned", deferred: "Deferred" };
-const RES = { merged: "Merge summary", abandoned: "Why abandoned", deferred: "Where I stopped" };
+const STATUS = { active: "Active", merged: "Merged", abandoned: "Abandoned", deferred: "Deferred", completed: "Completed" };
 const go = id => `<a data-go="${id}">${label(byId[id])}</a>`;
 
-// Sample conversations. In the real app these come from Claude sessions.
-const CHATS = {
-  root: [
-    { me: 1, text: "Why do a heavy ball and a light ball hit the ground at the same time?" },
-    { text: "Because gravity's pull grows with mass, but so does the object's resistance to being moved (its inertia). The two cancel, so every object gets the same acceleration, about 9.8 m/s² near Earth's surface.\n\nThe feather-vs-hammer difference you see in everyday life comes from air resistance, not gravity." },
-  ],
-  n1: [
-    { me: 1, text: "How did Newton actually get from a falling apple to gravity?" },
-    { text: "The famous step is a question: if gravity reaches the top of an apple tree, does it reach further? Up a mountain? All the way to the Moon?\n\nIf it does, the Moon should be falling toward Earth too. The puzzle is why it doesn't land." },
-  ],
-  n2: [
-    { me: 1, text: "Picking up from the Moon question. Why doesn't the Moon land if it's falling?" },
-    { text: "Newton's cannonball thought experiment answers it. Fire a cannonball sideways from a very tall mountain: it curves down and lands. Fire it faster and it lands further away. Fast enough, and the ground curves away as quickly as the ball falls, so it never lands. That's an orbit.\n\nThe Moon is doing exactly that: falling the whole time, but moving sideways fast enough to keep missing." },
-    { me: 1, text: "That's the opener. Merging this." },
-  ],
-  n3: [
-    { me: 1, text: "How much does air resistance change how fast a ball falls?" },
-    { text: "It depends on speed, shape and size. Drag grows roughly with the square of speed, so it barely matters for a short drop but caps a skydiver at about 55 m/s. Getting precise means drag coefficients and Reynolds numbers…" },
-  ],
-  n4: [
-    { me: 1, text: "Is 9.8 m/s² the same everywhere on Earth?" },
-    { text: "Close, but no. It ranges from about 9.78 m/s² at the equator to 9.83 m/s² at the poles. Altitude and local geology change it slightly too." },
-  ],
-  n5: [
-    { me: 1, text: "Why would Earth's shape change gravity at all?" },
-    { text: "Two effects stack up:\n\n1. Earth spins, which makes it bulge at the equator. A person there is about 21 km further from Earth's center than at a pole, and gravity weakens with distance.\n2. The spin itself flings you outward a little at the equator, slightly offsetting gravity.\n\nTogether they make g about 0.5% smaller at the equator." },
-    { me: 1, text: "So for a classroom, is that worth mentioning?" },
-    { text: "Probably as a one-liner: \"9.8 is an average. You'd weigh about half a percent less at the equator.\" It's a nice hook, but it doesn't change any calculation students will do." },
-  ],
-};
+// Chat transcripts per node, loaded from the server the first time a node is viewed.
+const CHATS = {};
+async function loadChat(id) {
+  if (CHATS[id]) return;
+  try {
+    const log = await api(`/api/chat/${encodeURIComponent(id)}`);
+    CHATS[id] ??= log.messages.map(m => (m.role === "user" ? { me: 1, text: m.text } : { text: m.text }));
+  } catch (e) { CHATS[id] ??= [{ err: true, text: e.message }]; }
+  if (viewed === id) draw();
+}
 
 const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const para = s => esc(s).split("\n\n").map(p => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
@@ -759,12 +729,13 @@ function view(id) {
   els[id]?.scrollIntoView({ block: "nearest" });
   draw();
   record();
+  if (!CHATS[id]) loadChat(id);
 }
 
 // ---- Back in time: every place you visit is recorded; Backspace steps back ----
 const hist = [];
 let restoring = false;
-const here = () => ({ g: graph, node: viewed, home: !home.hidden });
+const here = () => ({ g: graph.id, node: viewed, home: !home.hidden });
 function record() {
   if (restoring) return;
   const s = here(), last = hist[hist.length - 1];
@@ -772,15 +743,16 @@ function record() {
   hist.push(s);
   if (hist.length > 200) hist.shift();
 }
-function goBack() {
+async function goBack() {
   if (hist.length < 2) return;
   hist.pop();
   const s = hist[hist.length - 1];
   restoring = true;
   try {
     if (s.home) openHome();
-    else { closeHome(); if (s.g !== graph) useGraph(s.g, s.node); else view(s.node); }
-  } finally { restoring = false; }
+    else { closeHome(); if (s.g !== graph.id) await switchTo(s.g, s.node); else if (byId[s.node]) view(s.node); }
+  } catch (e) { toast(e.message); }
+  finally { restoring = false; }
 }
 function toggleAbout() { aboutOpen = !aboutOpen; draw(); }
 
@@ -806,26 +778,21 @@ function draw() {
   sc.scrollTop = sc.scrollHeight;
 }
 
-// ---- Claude bridge ----
-// Served by prototype/server.mjs, the page talks to Claude Code in headless mode.
-// Opened as a plain file, it falls back to dummy replies.
+// ---- Claude ----
+// The server runs Claude Code in headless mode; this page only streams the replies.
 const LIVE = location.protocol.startsWith("http");
 
 async function checkClaude() {
   const b = document.getElementById("banner");
-  if (!LIVE) {
-    b.innerHTML = `Offline demo. To talk to Claude, run <code>node prototype/server.mjs</code> and open <code>http://localhost:5179</code>.`;
-    b.hidden = false; return;
-  }
   b.innerHTML = `<span class="spin"></span>Checking Claude Code…`; b.hidden = false;
   try {
-    const h = await (await fetch("/api/health")).json();
+    const { claude: h } = await api("/api/health");
     if (h.loggedIn) { b.hidden = true; return; }
     b.innerHTML = `${h.error ? esc(h.error) : "Claude Code isn't signed in."} In a terminal, run <code>claude auth login</code>, then
       <button type="button" class="linkbtn" id="recheck">check again</button>.`;
     document.getElementById("recheck").onclick = checkClaude;
   } catch {
-    b.innerHTML = `Can't reach the local server. Is <code>node prototype/server.mjs</code> still running?`;
+    b.innerHTML = `Can't reach the local server. Is <code>npm run dev</code> still running?`;
   }
 }
 
@@ -838,29 +805,10 @@ function md(s) {
   }).join("");
 }
 
-// What Claude knows about the node you're in.
-function systemFor(n) {
-  const chain = pathTo(n.id).map((p, i) => `${"  ".repeat(i)}- ${p.title}: ${p.scope}`).join("\n");
-  return `You are the tutor inside Tangent Graph, a learning tool that keeps people from rabbit-holing.
-
-The learner is in this session:
-Session: ${n.title}
-Scope (what "done" looks like): ${n.scope}
-Why it matters: ${n.motivation || n.justification}
-
-How it fits, main task first:
-${chain}
-
-How to answer:
-- Answer directly and concisely. Short paragraphs; use lists only when they help.
-- Stay inside this session's scope. If a question drifts outside it, say so in one sentence and suggest forking it as a tangent instead of answering at length.
-- When the scope looks satisfied, say so briefly so the learner can merge.`;
-}
-
 // POST to the server and read Server-Sent Events. Calls onDelta(text) as text streams in.
-async function streamChat(body, onDelta) {
-  const res = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
+async function streamSSE(path, body, onDelta) {
+  const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).message || `Server error ${res.status}`);
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "", result = null;
   for (;;) {
@@ -880,9 +828,6 @@ async function streamChat(body, onDelta) {
   return result;
 }
 
-// Earlier messages Claude hasn't seen yet (sample data), folded into the first message.
-const transcript = msgs => msgs.map(m => `${m.me ? "Learner" : "Tutor"}: ${m.text}`).join("\n\n");
-
 function msgHTML(m) {
   if (m.me) return `<div class="msg me">${para(m.text)}</div>`;
   if (m.err) return `<div class="msg ai err">Couldn't get a reply: ${esc(m.text)}</div>`;
@@ -891,7 +836,8 @@ function msgHTML(m) {
 }
 
 function chatHTML(n) {
-  const msgs = CHATS[n.id] || [];
+  const msgs = CHATS[n.id];
+  if (!msgs) return `<p class="new-chat-hint"><span class="spin"></span></p>`;
   return `<div class="chat">` + (msgs.length ? msgs.map(msgHTML).join("")
     : `<p class="new-chat-hint">${n.parent ? "No conversation yet." : `Start with your first question about<br><b>${esc(n.title)}</b>`}</p>`) + `</div>`;
 }
@@ -899,8 +845,10 @@ function chatHTML(n) {
 function composerHTML(n) {
   // Resolved: the takeaway sits where the reply box would be.
   if (n.status !== "active") {
+    const canContinue = n.parent && n.parent === graph.cursor && graph.status === "active";
     return `<div class="card c-${n.status} takeaway"><span class="lbl">${STATUS[n.status]}</span>
-      <span class="txt">${esc(n.resolution)}</span><button type="button" title="Starts #${(n.seq || 1) + 1} (prototype)">Continue</button></div>`;
+      <span class="txt">${esc(n.resolution || "")}</span>${canContinue
+        ? `<button type="button" onclick="openFork({ continueFrom: '${n.id}' })" title="Revisit as #${(n.seq || 1) + 1}">Continue</button>` : ""}</div>`;
   }
   const open = openChild(n);
   return `<div class="box">
@@ -918,19 +866,12 @@ function composerHTML(n) {
 async function send(text) {
   text = text.trim();
   if (!text) return;
-  const n = byId[viewed], id = n.id, msgs = (CHATS[id] ||= []);
-  const earlier = n.claudeSession ? [] : msgs.slice(); // history Claude hasn't seen
+  const id = viewed, msgs = (CHATS[id] ||= []);
   msgs.push({ me: 1, text });
-  if (!LIVE) {
-    draw();
-    setTimeout(() => { msgs.push({ text: "(Offline demo: start the server to get real replies.)" }); if (viewed === id) draw(); }, 400);
-    return;
-  }
   const reply = { text: "", pending: true };
   msgs.push(reply); draw();
-  const message = earlier.length ? `Earlier in this session:\n\n${transcript(earlier)}\n\nNew message from the learner:\n${text}` : text;
   try {
-    const r = await streamChat({ system: systemFor(n), message, sessionId: n.claudeSession }, chunk => {
+    await streamSSE(`/api/chat/${encodeURIComponent(id)}`, { message: text }, chunk => {
       reply.text += chunk;
       if (viewed !== id) return;
       const last = [...document.querySelectorAll("#detail .msg.ai")].pop();
@@ -938,7 +879,6 @@ async function send(text) {
       if (last) last.innerHTML = md(reply.text);
       if (atBottom) sc.scrollTop = sc.scrollHeight;
     });
-    n.claudeSession = r.sessionId;
   } catch (e) { reply.err = true; reply.text = e.message; }
   reply.pending = false;
   if (viewed === id) { const ta = document.querySelector("#composer textarea"), draft = ta?.value; draw(); if (draft) document.querySelector("#composer textarea").value = draft; }
@@ -1064,13 +1004,6 @@ function toggleSQ(open = sq.hidden, quote = "") {
   if (open) { sqQuote = quote; sqMsgs = []; drawSQ(); sqInput.focus(); } else { sqMsgs = []; sqQuote = ""; }
 }
 let sqSession = null;
-function sideSystem(n, quote) {
-  return `You answer quick side questions inside Tangent Graph, a learning tool. These are throwaway questions:
-answer in a few sentences, directly, without drifting into a lesson.
-
-Context: the learner is in the session "${n.title}" (scope: ${n.scope}).` +
-    (quote ? `\n\nThey highlighted this passage and are asking about it:\n"""\n${quote}\n"""` : "");
-}
 
 // Highlight text in the chat → a small "Side question" tooltip appears above it.
 const selTip = document.getElementById("selTip");
@@ -1106,100 +1039,76 @@ sqInput.onkeydown = e => {
   if (!text) return;
   sqInput.value = "";
   sqMsgs.push({ me: 1, text });
-  if (!LIVE) {
-    drawSQ();
-    setTimeout(() => { sqMsgs.push({ text: "(Offline demo: start the server to get real replies.)" }); drawSQ(); }, 400);
-    return;
-  }
   const reply = { text: "", pending: true }, mine = sqMsgs;
   sqMsgs.push(reply); drawSQ();
-  streamChat({ system: sideSystem(byId[viewed], sqQuote), message: text, sessionId: sqSession }, chunk => {
+  streamSSE("/api/side", { nodeId: viewed, quote: sqQuote || undefined, message: text, sessionId: sqSession || undefined }, chunk => {
     reply.text += chunk; if (sqMsgs === mine) drawSQ();
   }).then(r => { if (sqMsgs === mine) sqSession = r.sessionId; })
     .catch(e => { reply.err = true; reply.text = e.message; })
     .finally(() => { reply.pending = false; if (sqMsgs === mine) drawSQ(); });
 };
 
-// ---- Modal sheet (fork a tangent / new main task). All dummy: nothing is saved. ----
+// ---- Modal sheet: fork / continue a tangent, start a main task ----
 const modal = document.getElementById("modal"), sheet = modal.querySelector(".sheet");
 const closeModal = () => { modal.hidden = true; sheet.innerHTML = ""; };
 modal.onmousedown = e => { if (e.target === modal) closeModal(); };
-const now = () => new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).replace(" at", ",");
 const field = (id, labelText, hint, ph, multi) => `<div class="field"><label for="${id}">${labelText}</label>${hint ? `<small>${hint}</small>` : ""}
   ${multi ? `<textarea id="${id}" rows="2" placeholder="${ph}"></textarea>` : `<input id="${id}" placeholder="${ph}">`}</div>`;
 const val = id => document.getElementById(id).value.trim();
 
-// Stand-in for Claude's judgment: pushes back on "it's interesting" style reasons.
-function judge(j, parentGoal) {
-  const weak = j.length < 40 || /\b(curious|interesting|cool|fun|wonder|just want)\b/i.test(j);
-  return weak
-    ? { ok: false, text: `This says why the tangent is interesting, not what you'd do differently for "${parentGoal.replace(/[.\s]+$/, "")}". Name the decision or step it changes.` }
-    : { ok: true, text: "Clear link to the parent: resolving this changes a concrete step in its goal." };
+// Shows why the server said no: the judge's feedback, Claude being unreachable, or a rule.
+function verdictHTML(e) {
+  if (e.info?.kind === "rejected") return `<div class="verdict no"><b>Needs a stronger reason</b>${esc(e.info.feedback)}</div>`;
+  if (e.info?.kind === "judge-unavailable") return `<div class="verdict no"><b>Couldn't check with Claude</b>${esc(e.message)}</div>`;
+  return `<div class="verdict no"><b>Not allowed</b>${esc(e.message)}</div>`;
 }
 
-function openFork(prefill = "") {
-  const parent = byId[graph.cursor];
+/** New tangent from the cursor, or (with continueFrom) a #2 of a resolved branch. */
+function openFork({ prefill = "", continueFrom = null } = {}) {
+  if (graph.status !== "active") return toast("This main task is closed. Only notes can be added.");
+  const parent = byId[graph.cursor], source = continueFrom && byId[continueFrom];
   sheet.innerHTML = `
-    <div class="sheet-head"><h3>New tangent</h3><p>Branching from <b>${esc(label(parent))}</b></p></div>
+    <div class="sheet-head"><h3>${source ? `Continue "${esc(label(source))}"` : "New tangent"}</h3>
+      <p>${source ? `Starts #${(source.seq || 1) + 1} under` : "Branching from"} <b>${esc(label(parent))}</b></p></div>
     <div class="sheet-body">
       <div class="ref"><b>Parent goal</b>${esc(parent.scope)}</div>
-      ${field("fTitle", "What's the tangent?",
-        "One specific question you can actually answer.",
+      ${source ? `<div class="ref"><b>Last time · ${STATUS[source.status]}</b>${esc(source.resolution || "")}</div>` : ""}
+      ${field("fTitle", source ? "Title" : "What's the tangent?",
+        source ? "Optional. Keeps the original title if left as is." : "One specific question you can actually answer.",
         "e.g. Which tools does this company's backend team use?")}
       ${field("fScope", "Scope",
         "What \"done\" looks like. Once you have this, you resolve the branch.",
         "e.g. Find 2–3 tools from their job posts or engineering blog, and note which ones I've used.", true)}
       ${field("fJust", "Justification",
-        "What you'll do differently for the parent goal depending on the answer. Being related isn't enough.",
+        source ? "Why going back changes what you do for the parent goal." : "What you'll do differently for the parent goal depending on the answer. Being related isn't enough.",
         "e.g. If I've used their tools, I open the letter with that project. If not, I lead with how fast I pick up new tools.", true)}
       <div id="fVerdict"></div>
     </div>
     <div class="sheet-foot"><button class="btn" type="button" id="fCancel">Cancel</button>
-      <button class="btn primary" type="button" id="fGo" disabled>Check justification</button></div>`;
+      <button class="btn primary" type="button" id="fGo" disabled>Check &amp; create</button></div>`;
   modal.hidden = false;
   const go = document.getElementById("fGo"), verdict = document.getElementById("fVerdict");
-  let approved = false;
-  document.getElementById("fTitle").value = prefill;
-  const update = () => {
-    approved = false; verdict.innerHTML = "";
-    go.textContent = "Check justification";
-    go.disabled = !(val("fTitle") && val("fScope") && val("fJust"));
-  };
+  document.getElementById("fTitle").value = source ? source.title : prefill;
+  const update = () => { go.disabled = !((source || val("fTitle")) && val("fScope") && val("fJust")); };
   sheet.querySelectorAll("input, textarea").forEach(el => el.oninput = update);
   update();
-  document.getElementById(prefill ? "fScope" : "fTitle").focus();
+  document.getElementById(source || prefill ? "fScope" : "fTitle").focus();
   document.getElementById("fCancel").onclick = closeModal;
-  go.onclick = () => {
-    if (approved) return createBranch(parent, val("fTitle"), val("fScope"), val("fJust"));
+  go.onclick = async () => {
     go.disabled = true;
     verdict.innerHTML = `<div class="verdict wait"><span class="spin"></span>Claude is checking the justification…</div>`;
-    const show = v => {
-      verdict.innerHTML = v.error
-        ? `<div class="verdict no"><b>Couldn't check</b>${esc(v.error)}</div>`
-        : `<div class="verdict ${v.ok ? "ok" : "no"}"><b>${v.ok ? "Justification holds up" : "Needs a stronger reason"}</b>${esc(v.text)}</div>`;
-      approved = !!v.ok;
-      go.textContent = v.ok ? "Create branch" : "Check again";
+    const title = val("fTitle");
+    try {
+      if (source) await act("/api/graph/continue", { source: source.id, scope: val("fScope"), justification: val("fJust"), ...(title ? { title } : {}) }, { quiet: true });
+      else await act("/api/graph/fork", { title, scope: val("fScope"), justification: val("fJust") }, { quiet: true });
+      closeModal(); toggleSQ(false);
+      CHATS[graph.cursor] = [];
+      if (!source) send(title); // the tangent's question becomes the first message
+    } catch (e) {
+      verdict.innerHTML = verdictHTML(e);
       go.disabled = false;
-    };
-    if (!LIVE) return setTimeout(() => show(judge(val("fJust"), parent.scope)), 900);
-    fetch("/api/judge", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ parentGoal: parent.scope, title: val("fTitle"), scope: val("fScope"), justification: val("fJust") }) })
-      .then(r => r.json())
-      .then(v => show(v.error ? { error: v.error } : { ok: v.ok, text: v.feedback }))
-      .catch(e => show({ error: e.message }));
+    }
   };
-}
-
-function createBranch(parent, title, scope, justification) {
-  const id = "n" + Date.now();
-  const node = { id, parent: parent.id, title, status: "active", scope, justification, created: now(), notes: [] };
-  graph.nodes.push(node); byId[id] = node;
-  CHATS[id] = [];
-  if (LIVE) setTimeout(() => send(title)); // the tangent's question becomes the first message
-  else CHATS[id].push({ me: 1, text: title }, { text: "(Offline demo: start the server to get real replies.)" });
-  graph.cursor = id;
-  closeModal(); toggleSQ(false);
-  render(); view(id);
 }
 
 function openNewTask() {
@@ -1211,6 +1120,7 @@ function openNewTask() {
         "e.g. A one-page cover letter for this role, sent by Friday.", true)}
       ${field("tWhy", "Motivation", "Why it matters right now.",
         "e.g. Applications close Friday, and this is the job I want most.", true)}
+      <div id="tVerdict"></div>
     </div>
     <div class="sheet-foot"><button class="btn" type="button" id="tCancel">Cancel</button>
       <button class="btn primary" type="button" id="tGo" disabled>Start</button></div>`;
@@ -1219,37 +1129,50 @@ function openNewTask() {
   sheet.querySelectorAll("input, textarea").forEach(el => el.oninput = () => { go.disabled = !(val("tTitle") && val("tGoal") && val("tWhy")); });
   document.getElementById("tTitle").focus();
   document.getElementById("tCancel").onclick = closeModal;
-  go.onclick = () => {
-    const rid = "r" + Date.now();
-    const g = { title: val("tTitle"), updated: now(), cursor: rid, nodes: [
-      { id: rid, parent: null, title: val("tTitle"), status: "active", scope: val("tGoal"), motivation: val("tWhy"), created: now(), notes: [] }] };
-    CHATS[rid] = [];
-    graphs.push(g);
-    closeModal(); closeHome(); useGraph(g);
+  go.onclick = async () => {
+    go.disabled = true;
+    try {
+      const { graph: g } = await api("/api/tasks", { title: val("tTitle"), scope: val("tGoal"), motivation: val("tWhy") });
+      closeModal(); home.hidden = true;
+      enterGraph(g);
+      await refreshTasks();
+    } catch (e) {
+      document.getElementById("tVerdict").innerHTML = verdictHTML(e);
+      go.disabled = false;
+    }
   };
 }
 
-// Switch main task and land on `target` (defaults to that task's cursor) in one step,
+// Show a graph from the server and land on `target` (defaults to its cursor) in one step,
 // so back-history doesn't record a stop at the cursor on the way.
-function useGraph(g, target = g.cursor) {
-  graph = g;
-  byId = Object.fromEntries(g.nodes.map(n => [n.id, n]));
+function enterGraph(g, target) {
+  setGraph(g);
   folded.clear(); hiddenIds.clear(); toggleSQ(false);
-  document.getElementById("gtitle").firstChild.textContent = g.title;
-  viewed = target;
-  render(); view(target);
+  const to = target && byId[target] ? target : graph.cursor;
+  viewed = to;
+  render(); view(to);
+}
+/** Make another main task active on the server, then show it. */
+async function switchTo(graphId, target) {
+  const { graph: g } = await api(`/api/tasks/${encodeURIComponent(graphId)}/activate`, {});
+  enterGraph(g, target);
+  refreshTasks();
 }
 
 // Graph title in the sidebar opens a switcher.
-document.getElementById("gtitle").onclick = e => {
+document.getElementById("gtitle").onclick = async e => {
   e.stopPropagation();
   const r = e.currentTarget.getBoundingClientRect();
-  menu.innerHTML = graphs.map((g, i) => `<button data-g="${i}"><span>${esc(g.title)}</span><kbd>${g === graph ? "✓" : ""}</kbd></button>`).join("")
-    + `<hr><button data-home="1"><span>All main tasks</span><kbd>m</kbd></button>`
+  await refreshTasks().catch(() => {});
+  menu.innerHTML = tasks.map((t, i) => `<button data-t="${i}"><span>${esc(t.title)}</span><kbd>${t.id === graph.id ? "✓" : ""}</kbd></button>`).join("")
+    + (tasks.length ? "<hr>" : "")
+    + `<button data-home="1"><span>All main tasks</span><kbd>m</kbd></button>`
     + `<button data-new="1"><span>New main task…</span><kbd></kbd></button>`;
   menu.querySelectorAll("button").forEach(b => b.onclick = () => {
     closeMenu();
-    b.dataset.home ? openHome() : b.dataset.new ? openNewTask() : useGraph(graphs[b.dataset.g]);
+    if (b.dataset.home) openHome();
+    else if (b.dataset.new) openNewTask();
+    else switchTo(tasks[b.dataset.t].id).catch(e => toast(e.message));
   });
   menu.hidden = false;
   menu.style.left = r.left + "px"; menu.style.top = r.bottom + 4 + "px";
@@ -1257,21 +1180,21 @@ document.getElementById("gtitle").onclick = e => {
 
 // ---- Search palette ----
 // "nodes": Ctrl+O, find a session in this main task by name.
-// "text":  Ctrl+Shift+F, exact-text search through every task's chats, notes, goals and conclusions.
+// "text":  Ctrl+Shift+F, exact-text search through every task's chats, notes, goals and summaries (server-side).
 const pal = document.getElementById("pal"), palInput = document.getElementById("palInput");
-let palMode = "nodes", palSel = 0, palItems = [];
+let palMode = "nodes", palSel = 0, palItems = [], palSeq = 0;
 pal.onmousedown = e => { if (e.target === pal) closePal(); };
 const closePal = () => { pal.hidden = true; };
 
 function openPal(mode) {
   closeMenu(); closeModal();
-  palMode = mode; palSel = 0; palInput.value = "";
+  palMode = mode; palSel = 0; palInput.value = ""; palItems = [];
   document.getElementById("palMode").textContent = mode === "nodes" ? "Sessions" : "Search all";
   palInput.placeholder = mode === "nodes" ? `Jump to a session in "${graph.title}"…` : "Search every chat, note and summary…";
   document.getElementById("palFoot").innerHTML = mode === "nodes"
     ? "↑↓ move · Enter open · Esc close · <b>Ctrl+Shift+F</b> to search text instead"
     : "Exact match, case-insensitive · ↑↓ move · Enter open · Esc close";
-  pal.hidden = false; palInput.focus(); renderPal();
+  pal.hidden = false; palInput.focus(); updatePal();
 }
 
 // Fuzzy match for names: letters in order, gaps allowed.
@@ -1279,27 +1202,24 @@ const fuzzy = (q, s) => { let i = 0; s = s.toLowerCase(); for (const ch of q.toL
 
 function nodeResults(q) {
   const order = []; (function walk(n) { order.push(n); kids(n.id).forEach(walk); })(rootOf());
-  return order.filter(n => !q || fuzzy(q, n.title)).map(n => ({ g: graph, n, kind: "node" }));
+  return order.filter(n => !q || fuzzy(q, n.title)).map(n => ({
+    kind: "node", graphId: graph.id, graphTitle: graph.title, nodeId: n.id, nodeTitle: label(n), status: n.status,
+    path: pathTo(n.id).slice(0, -1).map(p => p.title).join(" / "),
+  }));
 }
 
-function textResults(q) {
-  if (q.length < 2) return [];
-  const out = [], needle = q.toLowerCase();
-  for (const g of graphs) for (const n of g.nodes) {
-    const sources = [
-      ...(CHATS[n.id] || []).map((m, i) => ({ text: m.text, src: m.me ? "You" : "Claude", msg: i })),
-      ...n.notes.map(x => ({ text: x.text, src: "Note" })),
-      { text: n.scope, src: n.parent ? "Scope" : "Goal" },
-      { text: n.justification || n.motivation || "", src: n.parent ? "Justification" : "Motivation" },
-      { text: n.resolution || "", src: STATUS[n.status] },
-    ];
-    for (const s of sources) {
-      const at = s.text.toLowerCase().indexOf(needle);
-      if (at >= 0) out.push({ g, n, kind: "text", ...s, at, len: q.length });
-      if (out.length >= 60) return out;
-    }
-  }
-  return out;
+/** Re-runs the search. Text search asks the server; stale answers are ignored. */
+async function updatePal() {
+  const q = palInput.value.trim();
+  if (palMode === "nodes") { palItems = nodeResults(q); return renderPal(q); }
+  if (q.length < 2) { palItems = []; return renderPal(q); }
+  const seq = ++palSeq;
+  try {
+    const { results } = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    if (seq !== palSeq) return;
+    palItems = results.map(r => ({ ...r, kind: "text", len: q.length }));
+  } catch (e) { palItems = []; toast(e.message); }
+  renderPal(q);
 }
 
 function snippet(text, at, len) {
@@ -1307,9 +1227,7 @@ function snippet(text, at, len) {
   return (a > 0 ? "…" : "") + esc(text.slice(a, at)) + "<mark>" + esc(text.slice(at, at + len)) + "</mark>" + esc(text.slice(at + len, b)) + (b < text.length ? "…" : "");
 }
 
-function renderPal() {
-  const q = palInput.value.trim();
-  palItems = palMode === "nodes" ? nodeResults(q) : textResults(q);
+function renderPal(q = palInput.value.trim()) {
   palSel = Math.min(palSel, Math.max(0, palItems.length - 1));
   const list = document.getElementById("palList");
   if (!palItems.length) {
@@ -1318,38 +1236,35 @@ function renderPal() {
   }
   let lastTask = null;
   list.innerHTML = palItems.map((r, i) => {
-    const pill = { merged: "MRG", deferred: "DEF", abandoned: "ABD" }[r.n.status];
-    const path = pathOf(r.g, r.n).map(p => esc(p.title)).join(" / ");
+    const pill = { merged: "MRG", deferred: "DEF", abandoned: "ABD" }[r.status];
     let head = "";
-    if (palMode === "text" && r.g !== lastTask) { head = `<div class="pal-group">${esc(r.g.title)}</div>`; lastTask = r.g; }
+    if (palMode === "text" && r.graphId !== lastTask) { head = `<div class="pal-group">${esc(r.graphTitle)}</div>`; lastTask = r.graphId; }
     return head + `<button type="button" class="pr${i === palSel ? " sel" : ""}" data-i="${i}">
-      <div class="pr-top"><b>${esc(label(r.n))}</b>${pill ? `<span class="pill p-${r.n.status}">${pill}</span>` : ""}
-        ${r.kind === "text" ? `<span class="pr-src">${r.src}</span>` : `<span class="pr-src">${r.n.id === r.g.cursor ? "cursor" : ""}</span>`}</div>
-      ${r.kind === "text" ? `<div class="pr-snip">${snippet(r.text, r.at, r.len)}</div>` : (path ? `<div class="pr-sub">${path}</div>` : "")}
+      <div class="pr-top"><b>${esc(r.nodeTitle)}</b>${pill ? `<span class="pill p-${r.status}">${pill}</span>` : ""}
+        <span class="pr-src">${r.kind === "text" ? esc(r.src) : r.nodeId === graph.cursor ? "cursor" : ""}</span></div>
+      ${r.kind === "text" ? `<div class="pr-snip">${snippet(r.text, r.at, r.len)}</div>` : (r.path ? `<div class="pr-sub">${esc(r.path)}</div>` : "")}
     </button>`;
   }).join("");
   list.querySelectorAll(".pr").forEach(b => b.onclick = () => pickPal(palItems[b.dataset.i]));
   list.querySelector(".pr.sel")?.scrollIntoView({ block: "nearest" });
 }
-// Path from root down to (not including) a node, in any graph.
-function pathOf(g, n) {
-  const ids = Object.fromEntries(g.nodes.map(x => [x.id, x])), p = [];
-  for (let x = ids[n.parent]; x; x = ids[x.parent]) p.unshift(x);
-  return p;
-}
 
-function pickPal(r) {
+async function pickPal(r) {
   if (!r) return;
   closePal(); home.hidden = true;
-  if (r.g !== graph) useGraph(r.g, r.n.id); else view(r.n.id);
-  // Point at where the match is: flash the chat message, or open details for notes/goal/etc.
-  if (r.kind === "text" && r.msg !== undefined) {
+  try {
+    if (r.graphId !== graph.id) await switchTo(r.graphId, r.nodeId); else view(r.nodeId);
+  } catch (e) { return toast(e.message); }
+  // Point at where the match is: flash the chat message, or open details for notes and goals.
+  if (r.kind !== "text") return;
+  if (r.msg !== undefined) {
+    await loadChat(r.nodeId);
     const m = document.querySelectorAll("#detail .msg")[r.msg];
     if (m) { m.scrollIntoView({ block: "center" }); m.classList.add("flash"); }
-  } else if (r.kind === "text" && r.src !== STATUS[r.n.status]) { aboutOpen = true; draw(); }
+  } else if (!["merge", "abandon", "defer", "complete"].includes(r.src)) { aboutOpen = true; draw(); }
 }
 
-palInput.oninput = () => { palSel = 0; renderPal(); };
+palInput.oninput = () => { palSel = 0; updatePal(); };
 palInput.onkeydown = e => {
   if (e.key === "Escape") { e.preventDefault(); closePal(); }
   else if (e.key === "ArrowDown") { e.preventDefault(); palSel = Math.min(palItems.length - 1, palSel + 1); renderPal(); }
@@ -1360,49 +1275,49 @@ palInput.onkeydown = e => {
 // ---- Home: all main tasks ----
 const home = document.getElementById("home"), homeSearch = document.getElementById("homeSearch");
 let homeSel = 0, homeItems = [];
-function taskStats(g) {
-  const c = s => g.nodes.filter(n => n.parent && n.status === s).length;
-  return { open: c("active"), merged: c("merged"), deferred: c("deferred"), abandoned: c("abandoned") };
-}
 function renderHome() {
   const q = homeSearch.value.trim().toLowerCase();
-  const match = g => !q || (g.title + " " + g.nodes[0].scope).toLowerCase().includes(q);
-  const active = graphs.filter(g => g.status !== "completed" && match(g));
-  const done = graphs.filter(g => g.status === "completed" && match(g));
-  homeItems = [...active, ...done];
+  const match = t => !q || (t.title + " " + t.goal).toLowerCase().includes(q);
+  const open = tasks.filter(t => t.status === "active" && match(t));
+  const closed = tasks.filter(t => t.status !== "active" && match(t));
+  homeItems = [...open, ...closed];
   homeSel = Math.min(homeSel, Math.max(0, homeItems.length - 1));
-  const card = g => {
-    const i = homeItems.indexOf(g), st = taskStats(g), root = g.nodes.find(n => !n.parent);
-    const cur = g.nodes.find(n => n.id === g.cursor);
-    const pills = [st.merged && `<span class="pill p-merged">${st.merged} MRG</span>`,
-      st.deferred && `<span class="pill p-deferred">${st.deferred} DEF</span>`,
-      st.abandoned && `<span class="pill p-abandoned">${st.abandoned} ABD</span>`].filter(Boolean).join("");
-    const at = g.status === "completed" ? `<span class="tag-done">Completed</span>`
-      : `<span class="at">At <b>${esc(cur.title)}</b>${cur.parent ? "" : " (root)"}</span>`;
-    return `<button type="button" class="task${i === homeSel ? " sel" : ""}${g === graph ? " current" : ""}${g.status === "completed" ? " done" : ""}" data-i="${i}">
-      <div class="task-top"><b>${esc(g.title)}</b><time>${g.updated || ""}</time></div>
-      <div class="goal-l">${esc(root.scope)}</div>
+  const card = t => {
+    const i = homeItems.indexOf(t), c = t.counts;
+    const pills = [c.merged && `<span class="pill p-merged">${c.merged} MRG</span>`,
+      c.deferred && `<span class="pill p-deferred">${c.deferred} DEF</span>`,
+      c.abandoned && `<span class="pill p-abandoned">${c.abandoned} ABD</span>`].filter(Boolean).join("");
+    const at = t.status !== "active" ? `<span class="tag-done">${STATUS[t.status]}</span>`
+      : `<span class="at">At <b>${esc(t.cursorTitle)}</b>${t.cursorIsRoot ? " (root)" : ""}</span>`;
+    return `<button type="button" class="task${i === homeSel ? " sel" : ""}${t.id === graph.id ? " current" : ""}${t.status !== "active" ? " done" : ""}" data-i="${i}">
+      <div class="task-top"><b>${esc(t.title)}</b><time>${fmt(t.updatedAt)}</time></div>
+      <div class="goal-l">${esc(t.goal)}</div>
       <div class="task-meta">${at}${pills}</div></button>`;
   };
   document.getElementById("homeList").innerHTML =
-    (active.length ? `<div class="home-group">In progress · ${active.length}</div>` + active.map(card).join("") : "") +
-    (done.length ? `<div class="home-group">Completed · ${done.length}</div>` + done.map(card).join("") : "") +
-    (!homeItems.length ? `<p class="empty" style="text-align:center;margin-top:40px">No main tasks match "${esc(q)}".</p>` : "");
+    (open.length ? `<div class="home-group">In progress · ${open.length}</div>` + open.map(card).join("") : "") +
+    (closed.length ? `<div class="home-group">Closed · ${closed.length}</div>` + closed.map(card).join("") : "") +
+    (!tasks.length ? `<p class="empty" style="text-align:center;margin-top:40px">No main tasks yet. Start one with <b>New main task</b>.</p>`
+      : !homeItems.length ? `<p class="empty" style="text-align:center;margin-top:40px">No main tasks match "${esc(q)}".</p>` : "");
   document.getElementById("homeSub").textContent =
-    `${graphs.filter(g => g.status !== "completed").length} in progress · ${graphs.filter(g => g.status === "completed").length} completed`;
+    `${tasks.filter(t => t.status === "active").length} in progress · ${tasks.filter(t => t.status !== "active").length} closed`;
   document.querySelectorAll("#homeList .task").forEach(b => b.onclick = () => openTask(homeItems[b.dataset.i]));
   document.querySelector("#homeList .task.sel")?.scrollIntoView({ block: "nearest" });
 }
-function openHome() {
+async function openHome() {
   closeMenu(); toggleSQ(false);
-  homeSearch.value = ""; homeSel = Math.max(0, graphs.indexOf(graph));
-  home.hidden = false; renderHome(); record();
+  homeSearch.value = "";
+  home.hidden = false;
+  try { await refreshTasks(); } catch (e) { toast(e.message); }
+  homeSel = Math.max(0, homeItems.findIndex(t => t.id === graph.id));
+  renderHome(); record();
 }
-const closeHome = () => { if (home.hidden) return; home.hidden = true; record(); };
-function openTask(g) {
-  if (!g) return;
-  if (g === graph) return closeHome();
-  home.hidden = true; useGraph(g); // straight from home to the task, no stop in between
+const closeHome = () => { if (home.hidden || !graph.id) return; home.hidden = true; record(); };
+async function openTask(t) {
+  if (!t) return;
+  if (t.id === graph.id) return closeHome();
+  home.hidden = true; // straight from home to the task, no stop in between
+  try { await switchTo(t.id); } catch (e) { home.hidden = false; toast(e.message); }
 }
 const keysBtn = document.getElementById("keysBtn"), keysPanel = document.getElementById("keysPanel");
 function toggleKeys(open = keysPanel.hidden) {
@@ -1427,12 +1342,27 @@ function homeKey(e) {
 
 document.getElementById("sqFork").onclick = () => {
   const first = sqMsgs.find(m => m.me);
-  openFork(first ? first.text : "");
+  openFork({ prefill: first ? first.text : "" });
 };
 
-render();
-view(graph.cursor);
-checkClaude();
+// ---- Start: load the active main task, or show the home screen if there isn't one ----
+async function start() {
+  if (!LIVE) {
+    document.getElementById("banner").innerHTML = `Start the app with <code>npm run dev</code> and open <code>http://localhost:5179</code>.`;
+    document.getElementById("banner").hidden = false;
+    return;
+  }
+  checkClaude();
+  try {
+    await refreshTasks();
+    const { graph: g } = await api("/api/graph");
+    enterGraph(g);
+  } catch (e) {
+    if (e.status === 404) { openHome(); return; } // no main task yet
+    toast(e.message);
+  }
+}
+start();
 </script>
 </body>
 </html>
