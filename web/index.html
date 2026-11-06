@@ -113,6 +113,8 @@
   mark { background: color-mix(in srgb, var(--deferred) 35%, transparent); color: var(--text); border-radius: 2px; padding: 0 1px; }
   .pal-group { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); padding: 10px 10px 4px; }
   .pal-foot { border-top: 1px solid var(--border); padding: 7px 14px; font-size: 11px; color: var(--faint); }
+  .pr.off b { color: var(--faint); }
+  .pr-src kbd { font-size: 10px; }
   .pal-empty { padding: 20px; text-align: center; color: var(--faint); font-size: 13px; }
   .msg.flash { animation: flash 1.6s ease-out; border-radius: 8px; }
   @keyframes flash { 0%, 30% { background: color-mix(in srgb, var(--deferred) 22%, transparent); } 100% { background: transparent; } }
@@ -469,7 +471,7 @@
         <span><kbd>j</kbd><kbd>k</kbd> up / down</span><span><kbd>h</kbd> parent</span><span><kbd>l</kbd> child</span>
         <span><kbd>g</kbd> back to cursor</span><span><kbd>⌫</kbd> go back</span></div>
       <div class="kgroup"><b>Find</b>
-        <span><kbd>Ctrl O</kbd> session in this task</span><span><kbd>Ctrl ⇧ F</kbd> search all text</span><span><kbd>m</kbd> all main tasks</span></div>
+        <span><kbd>Ctrl K</kbd> or <kbd>:</kbd> commands</span><span><kbd>Ctrl O</kbd> session in this task</span><span><kbd>Ctrl ⇧ F</kbd> search all text</span><span><kbd>m</kbd> all main tasks</span></div>
       <div class="kgroup"><b>Branches</b>
         <span><kbd>f</kbd> fork a tangent</span><span><kbd>r</kbd> end branch / close task</span><span><kbd>n</kbd> add a note</span><span><kbd>z</kbd> fold</span><span><kbd>x</kbd> hide</span><span><kbd>H</kbd> hide resolved</span></div>
       <div class="kgroup"><b>View</b>
@@ -979,6 +981,7 @@ document.addEventListener("keydown", e => {
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
   if (mod && e.shiftKey && k === "f") { e.preventDefault(); openPal("text"); return; }   // search all text
   if (mod && !e.shiftKey && k === "o") { e.preventDefault(); openPal("nodes"); return; } // find a session
+  if (mod && !e.shiftKey && k === "k") { e.preventDefault(); openPal("commands"); return; } // command palette
   if (!pal.hidden) return; // the palette's own input handles its keys
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (!modal.hidden) { if (e.key === "Escape") closeModal(); return; }
@@ -991,6 +994,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") { closeMenu(); toggleKeys(false); return; }
   if (e.key === "f") { e.preventDefault(); openFork(); return; }
   if (e.key === "r") { e.preventDefault(); openResolve(); return; }
+  if (e.key === ":") { e.preventDefault(); openPal("commands"); return; }
   if (e.key === "n") { e.preventDefault(); focusNoteInput(); return; }
   if (e.key === "o") { toggleAbout(); return; }
   if (e.key === "\\") { toggleSide(); return; }
@@ -1185,12 +1189,12 @@ const ENDINGS = {
     ph: "e.g. The role was filled before I applied." },
 };
 
-function openResolve() {
+function openResolve(preset) {
   if (graph.status !== "active") return toast("This main task is closed. Only notes can be added.");
   const n = byId[graph.cursor], open = openChild(n);
   if (open) return toast(`Resolve "${label(open)}" first.`);
   const kinds = n.parent ? ["merge", "defer", "abandon"] : ["complete", "abandonTask"];
-  let kind = kinds[0];
+  let kind = kinds.includes(preset) ? preset : kinds[0];
   sheet.innerHTML = `
     <div class="sheet-head"><h3>${n.parent ? "End this branch" : "Close the main task"}</h3>
       <p><b>${esc(label(n))}</b>${n.parent ? ` · back to <b>${esc(label(byId[n.parent]))}</b> afterwards` : ""}</p></div>
@@ -1310,16 +1314,64 @@ const closePal = () => { pal.hidden = true; };
 function openPal(mode) {
   closeMenu(); closeModal();
   palMode = mode; palSel = 0; palInput.value = ""; palItems = [];
-  document.getElementById("palMode").textContent = mode === "nodes" ? "Sessions" : "Search all";
-  palInput.placeholder = mode === "nodes" ? `Jump to a session in "${graph.title}"…` : "Search every chat, note and summary…";
-  document.getElementById("palFoot").innerHTML = mode === "nodes"
-    ? "↑↓ move · Enter open · Esc close · <b>Ctrl+Shift+F</b> to search text instead"
-    : "Exact match, case-insensitive · ↑↓ move · Enter open · Esc close";
+  const MODES = {
+    nodes: ["Sessions", `Jump to a session in "${graph.title}"…`, "↑↓ move · Enter open · Esc close · <b>Ctrl+Shift+F</b> to search text instead"],
+    text: ["Search all", "Search every chat, note and summary…", "Exact match, case-insensitive · ↑↓ move · Enter open · Esc close"],
+    commands: ["Commands", "Type a command…", "↑↓ move · Enter run · Esc close · greyed out = not allowed right now"],
+  };
+  const [tag, ph, foot] = MODES[mode];
+  document.getElementById("palMode").textContent = tag;
+  palInput.placeholder = ph;
+  document.getElementById("palFoot").innerHTML = foot;
   pal.hidden = false; palInput.focus(); updatePal();
 }
 
 // Fuzzy match for names: letters in order, gaps allowed.
 const fuzzy = (q, s) => { let i = 0; s = s.toLowerCase(); for (const ch of q.toLowerCase()) { i = s.indexOf(ch, i); if (i < 0) return false; i++; } return true; };
+
+// Every action, with whether it's allowed right now (and why not). Rules mirror SPEC.md;
+// the server still enforces them, this only greys out what would be refused.
+function commands() {
+  const cur = byId[graph.cursor], closed = graph.status !== "active", atCursor = viewed === graph.cursor;
+  const open = cur && openChild(cur);
+  const structural = closed ? "This main task is closed." : open ? `Resolve "${label(open)}" first.` : null;
+  const n = byId[viewed];
+  const list = [
+    { label: "Fork a tangent", key: "f", why: structural, run: () => openFork() },
+    ...(cur?.parent ? [
+      { label: "Merge this branch", key: "r", sub: label(cur), why: structural, run: () => openResolve("merge") },
+      { label: "Defer this branch", sub: label(cur), why: structural, run: () => openResolve("defer") },
+      { label: "Abandon this branch", sub: label(cur), why: structural, run: () => openResolve("abandon") },
+    ] : [
+      { label: "Complete the main task", key: "r", why: structural, run: () => openResolve("complete") },
+      { label: "Abandon the main task", why: structural, run: () => openResolve("abandonTask") },
+    ]),
+    ...(cur ? kids(cur.id).filter(k => k.status !== "active").map(k => ({
+      label: `Continue "${label(k)}"`, sub: `Starts #${(k.seq || 1) + 1} · ${STATUS[k.status]}`, why: structural,
+      run: () => openFork({ continueFrom: k.id }),
+    })) : []),
+    { label: "Add a note", key: "n", sub: n ? `to ${label(n)}` : "", run: () => focusNoteInput() },
+    { label: "Go to cursor", key: "g", why: atCursor ? "You're already there." : null, run: () => view(graph.cursor) },
+    { label: "Go to parent", key: "h", why: n?.parent ? null : "This is the main task.", run: () => view(n.parent) },
+    { label: "Go back", key: "⌫", run: () => goBack() },
+    { label: "Find a session", key: "Ctrl O", run: () => openPal("nodes") },
+    { label: "Search all text", key: "Ctrl ⇧ F", run: () => openPal("text") },
+    { label: "Ask a side question", sub: "Throwaway; not saved", run: () => toggleSQ(true) },
+    { label: "Show details", key: "o", run: () => { aboutOpen = true; draw(); } },
+    { label: hideResolved ? "Show resolved branches" : "Hide resolved branches", key: "H", run: () => toggleResolved() },
+    { label: "Toggle sidebar", key: "\\", run: () => toggleSide() },
+    { label: "All main tasks", key: "m", run: () => openHome() },
+    { label: "New main task", run: () => openNewTask() },
+    ...tasks.filter(t => t.id !== graph.id).map(t => ({
+      label: `Switch to "${t.title}"`, sub: t.status === "active" ? `At ${t.cursorTitle}` : STATUS[t.status],
+      run: () => switchTo(t.id).catch(e => toast(e.message)),
+    })),
+  ];
+  return list;
+}
+function commandResults(q) {
+  return commands().filter(c => !q || fuzzy(q, c.label)).map(c => ({ ...c, kind: "cmd" }));
+}
 
 function nodeResults(q) {
   const order = []; (function walk(n) { order.push(n); kids(n.id).forEach(walk); })(rootOf());
@@ -1333,6 +1385,7 @@ function nodeResults(q) {
 async function updatePal() {
   const q = palInput.value.trim();
   if (palMode === "nodes") { palItems = nodeResults(q); return renderPal(q); }
+  if (palMode === "commands") { palItems = commandResults(q); return renderPal(q); }
   if (q.length < 2) { palItems = []; return renderPal(q); }
   const seq = ++palSeq;
   try {
@@ -1357,6 +1410,9 @@ function renderPal(q = palInput.value.trim()) {
   }
   let lastTask = null;
   list.innerHTML = palItems.map((r, i) => {
+    if (r.kind === "cmd") return `<button type="button" class="pr${i === palSel ? " sel" : ""}${r.why ? " off" : ""}" data-i="${i}">
+      <div class="pr-top"><b>${esc(r.label)}</b><span class="pr-src">${r.key ? `<kbd>${r.key}</kbd>` : ""}</span></div>
+      ${r.why ? `<div class="pr-sub">${esc(r.why)}</div>` : r.sub ? `<div class="pr-sub">${esc(r.sub)}</div>` : ""}</button>`;
     const pill = { merged: "MRG", deferred: "DEF", abandoned: "ABD" }[r.status];
     let head = "";
     if (palMode === "text" && r.graphId !== lastTask) { head = `<div class="pal-group">${esc(r.graphTitle)}</div>`; lastTask = r.graphId; }
@@ -1372,6 +1428,7 @@ function renderPal(q = palInput.value.trim()) {
 
 async function pickPal(r) {
   if (!r) return;
+  if (r.kind === "cmd") { if (r.why) return toast(r.why); closePal(); return r.run(); }
   closePal(); home.hidden = true;
   try {
     if (r.graphId !== graph.id) await switchTo(r.graphId, r.nodeId); else view(r.nodeId);
