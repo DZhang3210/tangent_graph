@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test",
-    "tg": "tsx src/cli/main.ts"
+    "tg": "tsx src/cli/main.ts",
+    "dev": "tsx src/server/main.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
