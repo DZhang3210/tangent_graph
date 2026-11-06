@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+
+# Your graphs. Personal learning data, not source code.
+data/
+
+# Machine-specific Claude Code settings
+.claude/settings.local.json
