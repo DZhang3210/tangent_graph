@@ -731,7 +731,7 @@ function openMenu(n, x, y) {
   menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + "px";
   menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + "px";
 }
-const closeMenu = () => { menu.hidden = true; };
+const closeMenu = () => { menu.hidden = true; menu.dataset.for = ""; };
 document.addEventListener("click", e => { if (!menu.contains(e.target)) closeMenu(); });
 document.addEventListener("wheel", closeMenu, { passive: true });
 
@@ -843,12 +843,16 @@ async function setModel(id) {
     toast(`Using ${modelLabel()} for chat, side questions and checks.`);
   } catch (e) { toast(e.message); }
 }
-function openModelMenu(btn) {
+// Stops the opening click from reaching the "click outside closes menus" handler.
+function openModelMenu(btn, e) {
+  e?.stopPropagation();
+  if (!menu.hidden && menu.dataset.for === "model") return closeMenu(); // second click closes it
   const r = btn.getBoundingClientRect();
   menu.innerHTML = `<div class="menu-head">Model</div>` + MODEL_LIST.map(m =>
     `<button data-m="${m.id}"><span>${esc(m.label)}${m.hint ? `<small>${esc(m.hint)}</small>` : ""}</span><kbd>${m.id === appSettings.model ? "✓" : ""}</kbd></button>`).join("");
   menu.querySelectorAll("button").forEach(b => b.onclick = () => { closeMenu(); setModel(b.dataset.m); });
   menu.hidden = false;
+  menu.dataset.for = "model";
   // Open upward from the reply box, kept on screen.
   menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + "px";
   menu.style.top = Math.max(8, r.top - menu.offsetHeight - 6) + "px";
@@ -913,7 +917,7 @@ function composerHTML(n) {
     <textarea rows="1" placeholder="Reply…"></textarea>
     <div class="bar"><span class="scopechip" title="${esc(n.scope)}">Scope: ${esc(n.scope)}</span>
       <div class="bar-r">
-        <button class="modelbtn" type="button" onclick="openModelMenu(this)" title="Model for chat, side questions and checks">${esc(modelLabel())}
+        <button class="modelbtn" type="button" onclick="openModelMenu(this, event)" title="Model for chat, side questions and checks">${esc(modelLabel())}
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button>
         ${n.id === graph.cursor ? `<button class="tbtn" type="button" onclick="openResolve()" title="${n.parent ? "End this branch (r)" : "Close the main task (r)"}" aria-label="End">${FLAG}</button>
           <button class="tbtn" type="button" onclick="openFork()" title="Fork a tangent (f)" aria-label="Fork a tangent">${BRANCH}</button>` : ""}
