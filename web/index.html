@@ -336,6 +336,26 @@
     display: grid; place-items: center; background: var(--text); color: var(--bg); }
   .send svg { width: 18px; height: 18px; }
   .send:hover { opacity: .88; }
+  /* End-branch choice: Merge / Defer / Abandon, each in its status color */
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; font: inherit; font-size: 13px; font-weight: 550; cursor: pointer; padding: 7px 10px; border-radius: 9px;
+    color: var(--muted); background: var(--bg); border: 1px solid var(--border); }
+  .seg button:hover { border-color: var(--faint); }
+  .seg button[aria-selected="true"] { color: color-mix(in srgb, var(--hue) 80%, var(--text));
+    background: color-mix(in srgb, var(--hue) 10%, var(--bg)); border-color: color-mix(in srgb, var(--hue) 45%, var(--bg)); }
+
+  /* Notes in the details panel */
+  .details .dnotes li { display: flex; align-items: baseline; gap: 6px; }
+  .details .dnotes li > span:first-of-type { flex: 1; }
+  .nstrike { font: inherit; font-size: 11px; color: var(--faint); background: none; border: 0; cursor: pointer; padding: 0 2px;
+    opacity: 0; transition: opacity .1s; }
+  .dnotes li:hover .nstrike, .nstrike:focus { opacity: 1; }
+  .nstrike:hover { color: var(--abandoned); }
+  .why-struck { font-size: 11.5px; color: var(--faint); font-style: italic; }
+  .note-in { width: 100%; margin-top: 6px; font: inherit; font-size: 13px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; outline: 0; }
+  .note-in:focus { border-color: var(--faint); }
+
   /* Short-lived message for errors from actions without their own form */
   #toast { position: fixed; z-index: 30; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px));
     background: var(--text); color: var(--bg); font-size: 13px; line-height: 1.45; padding: 9px 14px; border-radius: 10px;
@@ -451,7 +471,7 @@
       <div class="kgroup"><b>Find</b>
         <span><kbd>Ctrl O</kbd> session in this task</span><span><kbd>Ctrl ⇧ F</kbd> search all text</span><span><kbd>m</kbd> all main tasks</span></div>
       <div class="kgroup"><b>Branches</b>
-        <span><kbd>f</kbd> fork a tangent</span><span><kbd>z</kbd> fold</span><span><kbd>x</kbd> hide</span><span><kbd>H</kbd> hide resolved</span></div>
+        <span><kbd>f</kbd> fork a tangent</span><span><kbd>r</kbd> end branch / close task</span><span><kbd>n</kbd> add a note</span><span><kbd>z</kbd> fold</span><span><kbd>x</kbd> hide</span><span><kbd>H</kbd> hide resolved</span></div>
       <div class="kgroup"><b>View</b>
         <span><kbd>i</kbd> type a reply</span><span><kbd>o</kbd> details</span><span><kbd>\</kbd> sidebar</span>
         <span>Select text → side question</span><span>Right-click a row for more</span></div>
@@ -522,6 +542,9 @@ const BRANCH = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strok
 
 // ---- Data: everything comes from the local server (npm run dev). ----
 // The server's graph is converted into the shape this page renders.
+const FLAG = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.5 14V2.5M3.5 3h8l-1.8 3 1.8 3h-8"/></svg>`;
+
 let graph = { id: null, title: "", cursor: null, rootId: null, status: "active", nodes: [] };
 let tasks = [], activeId = null; // main task summaries for the home screen and switcher
 let byId = {};
@@ -766,6 +789,7 @@ function draw() {
   about.hidden = !aboutOpen;
   about.innerHTML = aboutOpen ? `<div class="about-in">${detailsHTML(n)}</div>` : "";
   document.getElementById("aboutBtn").onclick = toggleAbout;
+  if (aboutOpen) bindNotes(n);
   document.getElementById("detail").innerHTML = chatHTML(n);
   document.getElementById("composer").innerHTML = composerHTML(n);
   document.querySelectorAll("[data-go]").forEach(a => a.onclick = () => view(a.dataset.go));
@@ -855,7 +879,8 @@ function composerHTML(n) {
     <textarea rows="1" placeholder="Reply…"></textarea>
     <div class="bar"><span class="scopechip" title="${esc(n.scope)}">Scope: ${esc(n.scope)}</span>
       <div class="bar-r">
-        ${n.id === graph.cursor ? `<button class="tbtn" type="button" onclick="openFork()" title="Fork a tangent (f)" aria-label="Fork a tangent">${BRANCH}</button>` : ""}
+        ${n.id === graph.cursor ? `<button class="tbtn" type="button" onclick="openResolve()" title="${n.parent ? "End this branch (r)" : "Close the main task (r)"}" aria-label="End">${FLAG}</button>
+          <button class="tbtn" type="button" onclick="openFork()" title="Fork a tangent (f)" aria-label="Fork a tangent">${BRANCH}</button>` : ""}
         <button class="send" onclick="send(document.querySelector('#composer textarea').value)" aria-label="Send">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3.5M3.5 8 8 3.5 12.5 8"/></svg>
         </button>
@@ -884,6 +909,31 @@ async function send(text) {
   if (viewed === id) { const ta = document.querySelector("#composer textarea"), draft = ta?.value; draw(); if (draft) document.querySelector("#composer textarea").value = draft; }
 }
 
+// Notes can go on any node at any time (even locked or resolved), so they live in the details panel.
+function bindNotes(n) {
+  const input = document.getElementById("noteIn");
+  input.onkeydown = async e => {
+    if (e.key === "Escape") return input.blur();
+    if (e.key !== "Enter" || !input.value.trim()) return;
+    e.preventDefault();
+    const text = input.value;
+    input.disabled = true;
+    try { await saveAndStay("/api/graph/note", { text, nodeId: n.id }); focusNoteInput(); }
+    catch { input.disabled = false; }
+  };
+  document.querySelectorAll(".nstrike").forEach(b => b.onclick = () =>
+    saveAndStay("/api/graph/strike", { noteId: b.dataset.note }).catch(() => {}));
+}
+/** Like act(), but stays on the node you're viewing with the details panel open. */
+async function saveAndStay(path, body) {
+  const here = viewed;
+  try {
+    const { graph: g } = await api(path, body);
+    setGraph(g); render(); aboutOpen = true; view(here); aboutOpen = true; draw();
+  } catch (e) { toast(e.message); throw e; }
+}
+function focusNoteInput() { aboutOpen = true; draw(); document.getElementById("noteIn")?.focus(); }
+
 // Compact refresher: what this node is for. Same small label on every row.
 function detailsHTML(n) {
   const rows = [
@@ -891,9 +941,12 @@ function detailsHTML(n) {
     ["Why it matters", esc(n.motivation || n.justification), "muted"],
     n.continues && ["Continues", go(n.continues)],
     ["Timeline", `${n.d === 0 ? "Root" : "Level " + n.d} · started ${n.created}${n.resolved ? ` · ${n.status} ${n.resolved}` : ""}`, "muted"],
-    ["Notes", n.notes.length
-      ? `<ul class="dnotes">${n.notes.map(x => `<li><time>${x.t}</time>${x.struck ? `<s>${esc(x.text)}</s>` : esc(x.text)}</li>`).join("")}</ul>`
-      : `<span class="empty">None yet</span>`],
+    // Notes are add-only: you can strike one out (it stays visible) but never edit or delete it.
+    ["Notes", (n.notes.length
+      ? `<ul class="dnotes">${n.notes.map(x => `<li><time>${x.t}</time>${x.struck
+          ? `<s>${esc(x.text)}</s> <span class="why-struck">struck: ${esc(x.struck)}</span>`
+          : `<span>${esc(x.text)}</span><button type="button" class="nstrike" data-note="${x.id}" title="Strike out (stays visible)">strike</button>`}</li>`).join("")}</ul>`
+      : "") + `<input id="noteIn" class="note-in" placeholder="Add a note… (Enter)" autocomplete="off">`],
   ].filter(Boolean);
   return `<dl class="details">${rows.map(([k, v, c]) => `<dt>${k}</dt><dd${c ? ` class="${c}"` : ""}>${v}</dd>`).join("")}</dl>`;
 }
@@ -937,6 +990,8 @@ document.addEventListener("keydown", e => {
   if (e.key === "m") { e.preventDefault(); openHome(); return; }
   if (e.key === "Escape") { closeMenu(); toggleKeys(false); return; }
   if (e.key === "f") { e.preventDefault(); openFork(); return; }
+  if (e.key === "r") { e.preventDefault(); openResolve(); return; }
+  if (e.key === "n") { e.preventDefault(); focusNoteInput(); return; }
   if (e.key === "o") { toggleAbout(); return; }
   if (e.key === "\\") { toggleSide(); return; }
   if (e.key === "?") { e.preventDefault(); const s = chatSelection(); selTip.hidden = true; toggleSQ(sq.hidden, s ? s.text : ""); return; }
@@ -1057,8 +1112,8 @@ const field = (id, labelText, hint, ph, multi) => `<div class="field"><label for
 const val = id => document.getElementById(id).value.trim();
 
 // Shows why the server said no: the judge's feedback, Claude being unreachable, or a rule.
-function verdictHTML(e) {
-  if (e.info?.kind === "rejected") return `<div class="verdict no"><b>Needs a stronger reason</b>${esc(e.info.feedback)}</div>`;
+function verdictHTML(e, rejectedTitle = "Needs a stronger reason") {
+  if (e.info?.kind === "rejected") return `<div class="verdict no"><b>${rejectedTitle}</b>${esc(e.info.feedback)}</div>`;
   if (e.info?.kind === "judge-unavailable") return `<div class="verdict no"><b>Couldn't check with Claude</b>${esc(e.message)}</div>`;
   return `<div class="verdict no"><b>Not allowed</b>${esc(e.message)}</div>`;
 }
@@ -1109,6 +1164,72 @@ function openFork({ prefill = "", continueFrom = null } = {}) {
       go.disabled = false;
     }
   };
+}
+
+// Ending the cursor: merge / defer / abandon a branch, or complete / abandon the main task.
+const ENDINGS = {
+  merge: { label: "Merge", hue: "merged", q: "What did you learn, for the parent?",
+    hint: "Becomes a finding on the parent. Be specific: what changes because of it?",
+    ph: "e.g. Go, Postgres and Kafka. I've shipped Go and Postgres, so the letter opens with the billing project." },
+  defer: { label: "Defer", hue: "deferred", q: "Where did you stop, and why?",
+    hint: "So you (or a #2) can pick it up later.",
+    ph: "e.g. Read the job post; their engineering blog is next. Out of time before Friday." },
+  abandon: { label: "Abandon", hue: "abandoned", q: "Why is this off-purpose or too deep?",
+    hint: "Required. A record of the dead end, so you don't walk into it again.",
+    ph: "e.g. Their company history doesn't change anything I'd write in the letter." },
+  complete: { label: "Complete", hue: "merged", q: "What did you achieve?",
+    hint: "Closes the main task. Only notes can be added afterwards.",
+    ph: "e.g. Sent the letter Thursday, opening with the billing project." },
+  abandonTask: { label: "Abandon task", hue: "abandoned", api: "abandon", q: "Why are you stopping this main task?",
+    hint: "Closes the main task. Only notes can be added afterwards.",
+    ph: "e.g. The role was filled before I applied." },
+};
+
+function openResolve() {
+  if (graph.status !== "active") return toast("This main task is closed. Only notes can be added.");
+  const n = byId[graph.cursor], open = openChild(n);
+  if (open) return toast(`Resolve "${label(open)}" first.`);
+  const kinds = n.parent ? ["merge", "defer", "abandon"] : ["complete", "abandonTask"];
+  let kind = kinds[0];
+  sheet.innerHTML = `
+    <div class="sheet-head"><h3>${n.parent ? "End this branch" : "Close the main task"}</h3>
+      <p><b>${esc(label(n))}</b>${n.parent ? ` · back to <b>${esc(label(byId[n.parent]))}</b> afterwards` : ""}</p></div>
+    <div class="sheet-body">
+      <div class="ref"><b>Scope</b>${esc(n.scope)}</div>
+      <div class="seg" role="tablist">${kinds.map(k => `<button type="button" role="tab" data-k="${k}" style="--hue: var(--${ENDINGS[k].hue})">${ENDINGS[k].label}</button>`).join("")}</div>
+      <div class="field"><label for="rSum" id="rQ"></label><small id="rHint"></small><textarea id="rSum" rows="3"></textarea></div>
+      <div id="rVerdict"></div>
+    </div>
+    <div class="sheet-foot"><button class="btn" type="button" id="rCancel">Cancel</button>
+      <button class="btn primary" type="button" id="rGo" disabled></button></div>`;
+  modal.hidden = false;
+  const go = document.getElementById("rGo"), sum = document.getElementById("rSum"), verdict = document.getElementById("rVerdict");
+  const pick = k => {
+    kind = k;
+    const e = ENDINGS[k];
+    sheet.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-selected", b.dataset.k === k));
+    document.getElementById("rQ").textContent = e.q;
+    document.getElementById("rHint").textContent = e.hint;
+    sum.placeholder = e.ph;
+    go.textContent = `Check & ${e.label.toLowerCase()}`;
+    verdict.innerHTML = "";
+    sum.focus();
+  };
+  sheet.querySelectorAll(".seg button").forEach(b => b.onclick = () => pick(b.dataset.k));
+  sum.oninput = () => { go.disabled = !sum.value.trim(); };
+  document.getElementById("rCancel").onclick = closeModal;
+  go.onclick = async () => {
+    go.disabled = true;
+    verdict.innerHTML = `<div class="verdict wait"><span class="spin"></span>Claude is checking the summary…</div>`;
+    try {
+      await act(`/api/graph/${ENDINGS[kind].api || kind}`, { summary: sum.value }, { quiet: true });
+      closeModal();
+    } catch (e) {
+      verdict.innerHTML = verdictHTML(e, "Needs more detail");
+      go.disabled = false;
+    }
+  };
+  pick(kind);
 }
 
 function openNewTask() {
