@@ -59,6 +59,15 @@ describe("service", () => {
     expect(val(await svc.current())).toEqual(start);
   });
 
+  it("blocks the change when the judge can't be reached", async () => {
+    const down: Judge = { ...stubJudge, reviewJustification: async () => { throw new Error("not signed in"); } };
+    const { svc, store } = setup(down);
+    val(await svc.startTask(rootInput));
+    const savesBefore = store.saves;
+    expect(await svc.fork(branchInput())).toMatchObject({ ok: false, error: { kind: "judge-unavailable", message: "not signed in" } });
+    expect(store.saves).toBe(savesBefore);
+  });
+
   it("checks local rules before asking the judge", async () => {
     const { svc, judge } = setup();
     val(await svc.startTask(rootInput));

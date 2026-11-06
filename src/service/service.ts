@@ -17,6 +17,7 @@ export type ServiceError =
   | { readonly kind: "domain"; readonly error: DomainError }
   | { readonly kind: "store"; readonly error: StoreError }
   | { readonly kind: "rejected"; readonly feedback: string }
+  | { readonly kind: "judge-unavailable"; readonly message: string }
   | { readonly kind: "no-active-task" };
 
 export function describeServiceError(e: ServiceError): string {
@@ -24,6 +25,7 @@ export function describeServiceError(e: ServiceError): string {
     case "domain": return describeError(e.error);
     case "store": return describeStoreError(e.error);
     case "rejected": return `Not accepted: ${e.feedback}`;
+    case "judge-unavailable": return `Couldn't check this with Claude, so nothing was changed: ${e.message}`;
     case "no-active-task": return "There's no active main task. Start one with `init`.";
   }
 }
@@ -64,7 +66,10 @@ export function createService(deps: { store: GraphStore; judge: Judge; ctx: Ctx 
     const next = apply(g.value);
     if (!next.ok) return err({ kind: "domain", error: next.error });
     if (review) {
-      const v = await review(g.value, next.value);
+      // A judge that can't answer blocks the change: never skip a check silently.
+      let v: Verdict;
+      try { v = await review(g.value, next.value); }
+      catch (e) { return err({ kind: "judge-unavailable", message: (e as Error).message }); }
       if (!v.ok) return err({ kind: "rejected", feedback: v.feedback });
     }
     await store.save(next.value);
