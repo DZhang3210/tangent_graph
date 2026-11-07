@@ -19,7 +19,7 @@ How it fits, main task first:
 ${chain}
 
 ${TEACHING_RULES}
-- Stay inside this session's scope. If a question drifts outside it, say so in one sentence and suggest forking it as a tangent instead of answering at length.
+- Stay inside this session's scope. A quick off-topic fact just gets its answer, with no comment. Only when an off-topic question would need a long answer, say so in one sentence and suggest forking it as a tangent instead.
 - When the scope looks satisfied, say so briefly so the learner can merge.`;
 }
 
