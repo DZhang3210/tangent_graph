@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { sideSystem, tutorSystem, withHistory } from "../../src/chat/prompts.js";
+import { sideSystem, TEACHING_RULES, tutorSystem, withHistory } from "../../src/chat/prompts.js";
 import { merge } from "../../src/core/index.js";
 import { jsonChatStore } from "../../src/persistence/index.js";
 import { chain, unwrap } from "../core/helpers.js";
@@ -14,6 +14,16 @@ describe("chat prompts", () => {
     expect(s).toContain("Session: b");
     expect(s).toContain(`Scope (what "done" looks like): ${g.nodes[b]!.scope}`);
     expect(s).toMatch(/- Cover letter for a backend role: .*\n {2}- a: .*\n {4}- b: /);
+  });
+
+  it("tell Claude to answer only what was asked, and to start big topics with a plain overview", () => {
+    const { g, b } = chain();
+    const s = tutorSystem(g, b);
+    expect(s).toContain(TEACHING_RULES);
+    expect(TEACHING_RULES).toMatch(/direct question gets a direct answer/);
+    expect(TEACHING_RULES).toMatch(/at most one short follow-up/);
+    expect(TEACHING_RULES).toMatch(/short overview of only the key ideas/);
+    expect(sideSystem(g, b)).toMatch(/answer exactly what was asked/);
   });
 
   it("mention when a session is already resolved", () => {
