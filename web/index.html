@@ -154,6 +154,7 @@
   .btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
   .btn:disabled { opacity: .4; cursor: default; }
   .new-chat-hint { color: var(--faint); font-size: 14px; text-align: center; margin-top: 18vh; }
+  .new-chat-hint small { display: block; margin-top: 10px; font-size: 12px; }
   .side-r { display: flex; align-items: center; gap: 8px; flex: none; }
   #count { white-space: nowrap; }
   #hideRes .slash { display: none; }
@@ -370,6 +371,13 @@
     background: var(--text); color: var(--bg); font-size: 13px; line-height: 1.45; padding: 9px 14px; border-radius: 10px;
     box-shadow: 0 10px 30px rgba(0,0,0,.25); }
   #toast[hidden] { display: none; }
+  #toast { display: flex; align-items: center; gap: 12px; }
+  #toast button { flex: none; font: inherit; font-weight: 600; color: inherit; background: color-mix(in srgb, var(--bg) 18%, transparent);
+    border: 0; border-radius: 7px; padding: 3px 9px; cursor: pointer; }
+  #toast button:hover { background: color-mix(in srgb, var(--bg) 30%, transparent); }
+  #toast kbd { font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1; color: inherit; background: none; border: 1px solid currentColor; border-radius: 4px;
+    padding: 1px 4px; opacity: .7; margin-left: 2px; box-shadow: none; }
+  .msg .status { font-size: 12.5px; color: var(--faint); margin-left: 8px; }
 
   /* Claude connection banner + reply rendering */
   #banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted);
@@ -480,7 +488,7 @@
       <div class="kgroup"><b>Find</b>
         <span><kbd>Ctrl K</kbd> or <kbd>:</kbd> commands</span><span><kbd>Ctrl O</kbd> session in this task</span><span><kbd>Ctrl ⇧ F</kbd> search all text</span><span><kbd>m</kbd> all main tasks</span></div>
       <div class="kgroup"><b>Branches</b>
-        <span><kbd>f</kbd> fork a tangent</span><span><kbd>r</kbd> end branch / close task</span><span><kbd>n</kbd> add a note</span><span><kbd>z</kbd> fold</span><span><kbd>x</kbd> hide</span><span><kbd>H</kbd> hide resolved</span></div>
+        <span><kbd>f</kbd> fork a tangent</span><span><kbd>u</kbd> undo a branch</span><span><kbd>r</kbd> end branch / close task</span><span><kbd>n</kbd> add a note</span><span><kbd>z</kbd> fold</span><span><kbd>x</kbd> hide</span><span><kbd>H</kbd> hide resolved</span></div>
       <div class="kgroup"><b>View</b>
         <span><kbd>i</kbd> type a reply</span><span><kbd>o</kbd> details</span><span><kbd>\</kbd> sidebar</span>
         <span>Select text → side question</span><span>Right-click a row for more</span></div>
@@ -545,9 +553,6 @@
 <script>
 const LOCK = '<svg class="lk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
 
-const BRANCH = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-  <circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="5.5" r="1.5"/>
-  <path d="M5 5v6M11 7c0 2.5-6 2-6 4"/></svg>`;
 
 // ---- Data: everything comes from the local server (npm run dev). ----
 // The server's graph is converted into the shape this page renders.
@@ -599,9 +604,15 @@ async function act(path, body, { quiet = false } = {}) {
 
 const toastEl = () => document.getElementById("toast");
 let toastTimer;
-function toast(msg) {
+function toast(msg, action) {
   const t = toastEl(); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+  if (action) {
+    const b = document.createElement("button");
+    b.type = "button"; b.innerHTML = `${esc(action.label)}${action.key ? ` <kbd>${action.key}</kbd>` : ""}`;
+    b.onclick = () => { t.hidden = true; action.run(); };
+    t.append(b);
+  }
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, action ? 9000 : 5000);
 }
 const kids = id => graph.nodes.filter(n => n.parent === id);
 const label = n => n.title + (n.seq ? " #" + n.seq : "");
@@ -868,7 +879,7 @@ function md(s) {
 }
 
 // POST to the server and read Server-Sent Events. Calls onDelta(text) as text streams in.
-async function streamSSE(path, body, onDelta) {
+async function streamSSE(path, body, onDelta, onEvent = () => {}) {
   const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).message || `Server error ${res.status}`);
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -884,6 +895,7 @@ async function streamSSE(path, body, onDelta) {
       if (ev === "delta") onDelta(data.text);
       else if (ev === "error") throw new Error(data.message);
       else if (ev === "done") result = data;
+      else onEvent(ev, data);
     }
   }
   if (!result) throw new Error("The reply ended early.");
@@ -893,7 +905,7 @@ async function streamSSE(path, body, onDelta) {
 function msgHTML(m) {
   if (m.me) return `<div class="msg me">${para(m.text)}</div>`;
   if (m.err) return `<div class="msg ai err">Couldn't get a reply: ${esc(m.text)}</div>`;
-  if (m.pending && !m.text) return `<div class="msg ai"><span class="typing"><i></i><i></i><i></i></span></div>`;
+  if (m.pending && !m.text) return `<div class="msg ai"><span class="typing"><i></i><i></i><i></i></span>${m.status ? `<span class="status">${esc(m.status)}</span>` : ""}</div>`;
   return `<div class="msg ai">${md(m.text)}</div>`;
 }
 
@@ -901,7 +913,8 @@ function chatHTML(n) {
   const msgs = CHATS[n.id];
   if (!msgs) return `<p class="new-chat-hint"><span class="spin"></span></p>`;
   return `<div class="chat">` + (msgs.length ? msgs.map(msgHTML).join("")
-    : `<p class="new-chat-hint">${n.parent ? "No conversation yet." : `Start with your first question about<br><b>${esc(n.title)}</b>`}</p>`) + `</div>`;
+    : `<p class="new-chat-hint">${n.parent ? "No conversation yet." : `Start with your first question about<br><b>${esc(n.title)}</b>`}`
+      + (n.id === graph.cursor && graph.status === "active" ? `<small>Off-topic questions branch off on their own.</small>` : "") + `</p>`) + `</div>`;
 }
 
 function composerHTML(n) {
@@ -919,8 +932,7 @@ function composerHTML(n) {
       <div class="bar-r">
         <button class="modelbtn" type="button" onclick="openModelMenu(this, event)" title="Model for chat, side questions and checks">${esc(modelLabel())}
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button>
-        ${n.id === graph.cursor ? `<button class="tbtn" type="button" onclick="openResolve()" title="${n.parent ? "End this branch (r)" : "Close the main task (r)"}" aria-label="End">${FLAG}</button>
-          <button class="tbtn" type="button" onclick="openFork()" title="Fork a tangent (f)" aria-label="Fork a tangent">${BRANCH}</button>` : ""}
+        ${n.id === graph.cursor ? `<button class="tbtn" type="button" onclick="openResolve()" title="${n.parent ? "End this branch (r)" : "Close the main task (r)"}" aria-label="End">${FLAG}</button>` : ""}
         <button class="send" onclick="send(document.querySelector('#composer textarea').value)" aria-label="Send">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3.5M3.5 8 8 3.5 12.5 8"/></svg>
         </button>
@@ -931,22 +943,54 @@ function composerHTML(n) {
 async function send(text) {
   text = text.trim();
   if (!text) return;
-  const id = viewed, msgs = (CHATS[id] ||= []);
-  msgs.push({ me: 1, text });
-  const reply = { text: "", pending: true };
-  msgs.push(reply); draw();
+  let id = viewed;
+  const mine = { me: 1, text }, reply = { text: "", pending: true };
+  (CHATS[id] ||= []).push(mine, reply);
+  draw();
+  const lastReply = () => [...document.querySelectorAll("#detail .msg.ai")].pop();
   try {
     await streamSSE(`/api/chat/${encodeURIComponent(id)}`, { message: text }, chunk => {
       reply.text += chunk;
       if (viewed !== id) return;
-      const last = [...document.querySelectorAll("#detail .msg.ai")].pop();
+      const last = lastReply();
       const sc = document.getElementById("scroll"), atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 80;
       if (last) last.innerHTML = md(reply.text);
       if (atBottom) sc.scrollTop = sc.scrollHeight;
+    }, (ev, data) => {
+      if (ev === "status") { reply.status = data.text; if (viewed === id && lastReply()) lastReply().outerHTML = msgHTML(reply); }
+      else if (ev === "notice") toast(data.text);
+      else if (ev === "branched") {
+        // Claude spotted a tangent: the question and its answer belong to the new branch.
+        const from = id, was = CHATS[from];
+        was.splice(was.indexOf(mine), 2);
+        id = data.nodeId; CHATS[id] = [mine, reply]; reply.status = "";
+        setGraph(data.graph); render(); refreshTasks();
+        keepDraft(() => { if (viewed === from) view(id); else draw(); });
+        toast(`Branched into "${label(byId[id])}". Answering there.`, { label: "Undo", key: "u", run: undoBranch });
+      }
     });
   } catch (e) { reply.err = true; reply.text = e.message; }
-  reply.pending = false;
-  if (viewed === id) { const ta = document.querySelector("#composer textarea"), draft = ta?.value; draw(); if (draft) document.querySelector("#composer textarea").value = draft; }
+  reply.pending = false; reply.status = "";
+  if (viewed === id) keepDraft(draw);
+}
+/** Re-renders without losing what's typed in the reply box. */
+function keepDraft(fn) {
+  const draft = document.querySelector("#composer textarea")?.value;
+  fn();
+  const ta = document.querySelector("#composer textarea");
+  if (draft && ta) ta.value = draft;
+}
+
+/** Undo the empty branch at the cursor (SPEC rule 11). Its chat goes back to the parent. */
+async function undoBranch() {
+  const cur = byId[graph.cursor];
+  if (!cur?.parent) return toast("There's no branch to undo here.");
+  try {
+    const { graph: g } = await api("/api/graph/undo", {});
+    delete CHATS[cur.id]; delete CHATS[cur.parent];
+    setGraph(g); render(); view(graph.cursor); refreshTasks();
+    toast(`Undid "${label(cur)}". The chat is back in "${label(byId[graph.cursor])}".`);
+  } catch (e) { toast(e.message); }
 }
 
 // Notes can go on any node at any time (even locked or resolved), so they live in the details panel.
@@ -1031,6 +1075,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "m") { e.preventDefault(); openHome(); return; }
   if (e.key === "Escape") { closeMenu(); toggleKeys(false); return; }
   if (e.key === "f") { e.preventDefault(); openFork(); return; }
+  if (e.key === "u") { e.preventDefault(); undoBranch(); return; }
   if (e.key === "r") { e.preventDefault(); openResolve(); return; }
   if (e.key === ":") { e.preventDefault(); openPal("commands"); return; }
   if (e.key === "n") { e.preventDefault(); focusNoteInput(); return; }
@@ -1376,7 +1421,10 @@ function commands() {
   const structural = closed ? "This main task is closed." : open ? `Resolve "${label(open)}" first.` : null;
   const n = byId[viewed];
   const list = [
-    { label: "Fork a tangent", key: "f", why: structural, run: () => openFork() },
+    { label: "Fork a tangent", key: "f", sub: "Off-topic questions also branch on their own", why: structural, run: () => openFork() },
+    ...(cur?.parent ? [{ label: "Undo this branch", key: "u", sub: `Removes ${label(cur)}; its chat goes back up`,
+      why: closed ? "This main task is closed." : kids(cur.id).length ? "It has branches of its own. End it instead."
+        : cur.notes.length ? "It has notes. End it instead." : null, run: () => undoBranch() }] : []),
     ...(cur?.parent ? [
       { label: "Merge this branch", key: "r", sub: label(cur), why: structural, run: () => openResolve("merge") },
       { label: "Defer this branch", sub: label(cur), why: structural, run: () => openResolve("defer") },

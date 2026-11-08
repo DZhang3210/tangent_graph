@@ -134,7 +134,7 @@ export function createApp(deps: AppDeps) {
     const emit = sse(res);
     const abort = new AbortController();
     res.on("close", () => abort.abort());
-    let text = "";
+    let text = "", offTopic: string | undefined;
     try {
       // Only the cursor can fork, so only messages sent there are checked for tangents.
       if (nodeId === g.cursor) {
@@ -144,10 +144,13 @@ export function createApp(deps: AppDeps) {
         if (t.branched) {
           g = t.graph; nodeId = g.cursor; log = await chats.load(g.id, nodeId);
           emit("branched", { graph: g, nodeId });
-        } else if (t.feedback) emit("notice", { text: t.feedback });
+        } else if (t.rejected) {
+          offTopic = t.rejected.title;
+          emit("notice", { text: `Off-topic: "${t.rejected.title}". Not worth a branch, so it gets a short answer here. ${firstSentence(t.rejected.feedback)}` });
+        }
       }
       const r = await claude.streamChat({
-        system: tutorSystem(g, nodeId),
+        system: tutorSystem(g, nodeId, offTopic),
         message: log.sessionId ? message : withHistory(log.messages, message),
         ...(log.sessionId ? { sessionId: log.sessionId } : {}),
         model: (await settings.get()).model,
@@ -269,3 +272,5 @@ function latest(g: Graph): string {
   }
   return t;
 }
+
+const firstSentence = (t: string) => /^.*?[.!?](?=\s|$)/.exec(t.trim())?.[0] ?? t.trim();

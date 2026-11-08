@@ -35,7 +35,7 @@ type Out = Promise<Result<Graph, ServiceError>>;
 /** What happened when a chat message was checked for a tangent. */
 export type TangentOutcome =
   | { readonly branched: true; readonly graph: Graph }
-  | { readonly branched: false; readonly feedback?: string };
+  | { readonly branched: false; readonly rejected?: { readonly title: string; readonly feedback: string } };
 type Review = (before: Graph, after: Graph) => Promise<Verdict>;
 
 export interface Service {
@@ -154,7 +154,8 @@ export function createService(deps: { store: GraphStore; judge: Judge; ctx: Ctx 
       if (!draft) return { branched: false };
       const r = await forkAtCursor(draft);
       if (r.ok) return { branched: true, graph: r.value };
-      return { branched: false, feedback: `Looked like a tangent ("${draft.title}"), so it wasn't branched: ${describeServiceError(r.error)}` };
+      const feedback = r.error.kind === "rejected" ? r.error.feedback : describeServiceError(r.error);
+      return { branched: false, rejected: { title: draft.title, feedback } };
     },
 
     strike: (noteId, reason) => change(g => {

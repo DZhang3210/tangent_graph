@@ -26,6 +26,12 @@ describe("chat prompts", () => {
     expect(sideSystem(g, b)).toMatch(/answer exactly what was asked/);
   });
 
+  it("keep an off-topic message that wasn't branched to a short answer", () => {
+    const { g, b } = chain();
+    expect(tutorSystem(g, b)).not.toContain("off-topic for this session");
+    expect(tutorSystem(g, b, "Golden visas")).toMatch(/off-topic for this session \("Golden visas"\)[\s\S]*Don't refuse/);
+  });
+
   it("mention when a session is already resolved", () => {
     const { g, ctx, b } = chain();
     const g2 = unwrap(merge(g, { nodeId: b, summary: "Go and Postgres." }, ctx));

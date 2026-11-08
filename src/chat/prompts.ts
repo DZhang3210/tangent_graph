@@ -3,7 +3,8 @@
 import { pathTo, type Graph, type NodeId } from "../core/index.js";
 import type { ChatMessage } from "../persistence/index.js";
 
-export function tutorSystem(g: Graph, nodeId: NodeId): string {
+/** `offTopic`: the new message was spotted as a tangent that wasn't worth its own branch. */
+export function tutorSystem(g: Graph, nodeId: NodeId, offTopic?: string): string {
   const n = g.nodes[nodeId]!;
   const chain = pathTo(g, nodeId).map((p, i) => `${"  ".repeat(i)}- ${p.title}: ${p.scope}`).join("\n");
   const why = n.parentId === null ? n.motivation : n.justification;
@@ -19,8 +20,12 @@ How it fits, main task first:
 ${chain}
 
 ${TEACHING_RULES}
-- Stay inside this session's scope. A quick off-topic fact just gets its answer, with no comment. Only when an off-topic question would need a long answer, say so in one sentence and suggest forking it as a tangent instead.
-- When the scope looks satisfied, say so briefly so the learner can merge.`;
+- Stay inside this session's scope. A quick off-topic fact just gets its answer, with no comment. Real tangents are spotted and branched off before they reach you.
+- If a question belongs to a session above this one, answer it briefly and say it's for that session: end this one to get back to it.
+- When the scope looks satisfied, say so briefly so the learner can merge.` + (offTopic ? `
+
+The learner's new message is off-topic for this session ("${offTopic}"), and it wasn't worth its own branch.
+Don't refuse: give the gist in one or two plain sentences, then point them back to the scope in one short line.` : "");
 }
 
 /**

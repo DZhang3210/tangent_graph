@@ -167,7 +167,8 @@ describe("server", () => {
     const { graph } = await (await post("/api/tasks", rootInput)).json().then(any);
     const events = await sse(await post(`/api/chat/${graph.rootId}`, { message: "q" }));
     expect(events.find(e => e.event === "branched")).toBeUndefined();
-    expect(events.find(e => e.event === "notice")!.data.text).toContain("Just curiosity.");
+    expect(events.find(e => e.event === "notice")!.data.text).toBe(`Off-topic: "x". Not worth a branch, so it gets a short answer here. Just curiosity.`);
+    expect(calls[0]!.system).toContain(`off-topic for this session ("x")`);
     expect(events.at(-1)).toMatchObject({ event: "done", data: { nodeId: graph.rootId } });
   });
 

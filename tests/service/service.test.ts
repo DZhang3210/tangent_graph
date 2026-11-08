@@ -170,7 +170,7 @@ describe("spotting tangents in chat", () => {
     const { svc } = setup({ ...rejecting, spotTangent: async () => draft });
     const g0 = val(await svc.startTask(rootInput));
     const out = await svc.branchIfTangent("q", []);
-    expect(out).toMatchObject({ branched: false, feedback: expect.stringContaining("That's curiosity, not a reason.") });
+    expect(out).toEqual({ branched: false, rejected: { title: draft.title, feedback: "That's curiosity, not a reason." } });
     expect(val(await svc.current())).toEqual(g0);
   });
 
