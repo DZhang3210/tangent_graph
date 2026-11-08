@@ -147,6 +147,55 @@ describe("server", () => {
     expect(calls.map(c => c.model)).toEqual(["claude-opus-5-5", "claude-opus-5-5"]);
   });
 
+  it("opens a branch when Claude spots a tangent, and answers there", async () => {
+    const draft = { title: "Tram passes", scope: "Pick one.", justification: "Changes my budget." };
+    await start({ ...stubJudge, spotTangent: async () => draft });
+    const { graph } = await (await post("/api/tasks", rootInput)).json().then(any);
+    const events = await sse(await post(`/api/chat/${graph.rootId}`, { message: "Which tram pass?" }));
+    const branched = events.find(e => e.event === "branched")!;
+    const id = branched.data.nodeId;
+    expect(branched.data.graph.nodes[id]).toMatchObject({ ...draft, parentId: graph.rootId });
+    expect(events.at(-1)).toMatchObject({ event: "done", data: { nodeId: id } });
+    expect(calls[0]!.system).toContain("Session: Tram passes");
+    expect((await (await get(`/api/chat/${id}`)).json().then(any)).messages).toHaveLength(2);
+    expect((await (await get(`/api/chat/${graph.rootId}`)).json().then(any)).messages).toEqual([]);
+  });
+
+  it("answers in place, with a notice, when the drafted branch is rejected", async () => {
+    await start({ ...stubJudge, spotTangent: async () => ({ title: "x", scope: "y", justification: "z" }),
+      reviewJustification: async () => ({ ok: false, feedback: "Just curiosity." }) });
+    const { graph } = await (await post("/api/tasks", rootInput)).json().then(any);
+    const events = await sse(await post(`/api/chat/${graph.rootId}`, { message: "q" }));
+    expect(events.find(e => e.event === "branched")).toBeUndefined();
+    expect(events.find(e => e.event === "notice")!.data.text).toContain("Just curiosity.");
+    expect(events.at(-1)).toMatchObject({ event: "done", data: { nodeId: graph.rootId } });
+  });
+
+  it("only checks messages sent at the cursor", async () => {
+    let asked = 0;
+    await start({ ...stubJudge, spotTangent: async () => { asked++; return null; } });
+    const { graph } = await (await post("/api/tasks", rootInput)).json().then(any);
+    await post("/api/graph/fork", branchInput());
+    await sse(await post(`/api/chat/${graph.rootId}`, { message: "on the locked parent" }));
+    expect(asked).toBe(0);
+  });
+
+  it("undoes an empty branch and moves its chat back to the parent", async () => {
+    const { graph } = await (await post("/api/tasks", rootInput)).json().then(any);
+    await sse(await post(`/api/chat/${graph.rootId}`, { message: "First" }));
+    const forked = await (await post("/api/graph/fork", branchInput())).json().then(any);
+    const id = forked.graph.cursor;
+    await sse(await post(`/api/chat/${id}`, { message: "Not really a tangent" }));
+    const undone = await post("/api/graph/undo");
+    expect(undone.status).toBe(200);
+    expect((await undone.json().then(any)).graph.cursor).toBe(graph.rootId);
+    const log = await (await get(`/api/chat/${graph.rootId}`)).json().then(any);
+    expect(log.messages.map((m: { text: string }) => m.text)).toEqual(["First", "Hello there.", "Not really a tangent", "Hello there."]);
+    expect(log.sessionId).toBeUndefined();
+    expect((await (await get(`/api/chat/${id}`)).json().then(any)).messages).toEqual([]);
+    expect((await post("/api/graph/undo")).status).toBe(409);
+  });
+
   it("rejects unknown routes and bad JSON", async () => {
     expect((await get("/api/nope")).status).toBe(404);
     const bad = await fetch(base + "/api/tasks", { method: "POST", body: "{nope" });

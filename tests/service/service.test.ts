@@ -10,6 +10,7 @@ function setup(judge: Judge = stubJudge) {
   const spy = {
     reviewJustification: vi.fn(judge.reviewJustification),
     reviewSummary: vi.fn(judge.reviewSummary),
+    spotTangent: vi.fn(judge.spotTangent),
   };
   return { store, judge: spy, svc: createService({ store, judge: spy, ctx: makeCtx() }) };
 }
@@ -17,6 +18,7 @@ function setup(judge: Judge = stubJudge) {
 const rejecting: Judge = {
   reviewJustification: async () => ({ ok: false, feedback: "That's curiosity, not a reason." }),
   reviewSummary: async () => ({ ok: false, feedback: "Say what you actually learned." }),
+  spotTangent: async () => null,
 };
 
 function val<T>(r: { ok: true; value: T } | { ok: false; error: ServiceError }): T {
@@ -125,5 +127,70 @@ describe("service", () => {
     val(await svc.startTask(rootInput));
     const g: Graph = val(await svc.abandon("Role was filled."));
     expect(g.nodes[g.rootId]!.status).toBe("abandoned");
+  });
+});
+
+describe("spotting tangents in chat", () => {
+  const draft = { title: "Lisbon tram passes", scope: "Pick a pass.", justification: "Changes my daily budget." };
+  const recent = [{ role: "user" as const, text: "Day 1?" }, { role: "assistant" as const, text: "Alfama." }];
+
+  it("forks the drafted branch through the justification check", async () => {
+    const { svc, judge } = setup({ ...stubJudge, spotTangent: async () => draft });
+    const g0 = val(await svc.startTask(rootInput));
+    const out = await svc.branchIfTangent("Which tram pass should I get?", recent);
+    expect(out.branched).toBe(true);
+    if (!out.branched) return;
+    expect(out.graph.nodes[out.graph.cursor]).toMatchObject({ ...draft, parentId: g0.rootId });
+    expect(judge.spotTangent).toHaveBeenCalledWith(expect.objectContaining({
+      title: rootInput.title, scope: rootInput.scope, why: rootInput.motivation, above: [], recent, message: "Which tram pass should I get?",
+    }));
+    expect(judge.reviewJustification).toHaveBeenCalledOnce();
+    expect(val(await svc.current()).cursor).toBe(out.graph.cursor);
+  });
+
+  it("passes the sessions above the cursor", async () => {
+    const { svc, judge } = setup();
+    await svc.startTask(rootInput);
+    await svc.fork(branchInput("a"));
+    await svc.branchIfTangent("q", []);
+    expect(judge.spotTangent.mock.calls[0]![0]).toMatchObject({ title: "a", above: [`${rootInput.title}: ${rootInput.scope}`] });
+  });
+
+  it("doesn't branch when it isn't a tangent, or the spotter fails", async () => {
+    const { svc } = setup();
+    const g0 = val(await svc.startTask(rootInput));
+    expect(await svc.branchIfTangent("q", [])).toEqual({ branched: false });
+    const down = setup({ ...stubJudge, spotTangent: async () => { throw new Error("not signed in"); } });
+    await down.svc.startTask(rootInput);
+    expect(await down.svc.branchIfTangent("q", [])).toEqual({ branched: false });
+    expect(val(await svc.current())).toEqual(g0);
+  });
+
+  it("explains, and changes nothing, when the judge rejects the draft", async () => {
+    const { svc } = setup({ ...rejecting, spotTangent: async () => draft });
+    const g0 = val(await svc.startTask(rootInput));
+    const out = await svc.branchIfTangent("q", []);
+    expect(out).toMatchObject({ branched: false, feedback: expect.stringContaining("That's curiosity, not a reason.") });
+    expect(val(await svc.current())).toEqual(g0);
+  });
+
+  it("never asks in a closed graph", async () => {
+    const { svc, judge } = setup();
+    await svc.startTask(rootInput);
+    await svc.complete("Sent it.");
+    expect(await svc.branchIfTangent("q", [])).toEqual({ branched: false });
+    expect(judge.spotTangent).not.toHaveBeenCalled();
+  });
+});
+
+describe("undo", () => {
+  it("removes the empty branch at the cursor and saves", async () => {
+    const { svc } = setup();
+    const g0 = val(await svc.startTask(rootInput));
+    val(await svc.fork(branchInput()));
+    const g = val(await svc.undo());
+    expect(g.cursor).toBe(g0.rootId);
+    expect(val(await svc.current())).toEqual(g);
+    expect(await svc.undo()).toMatchObject({ ok: false, error: { kind: "domain", error: { code: "NOT_UNDOABLE" } } });
   });
 });

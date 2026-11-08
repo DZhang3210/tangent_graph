@@ -39,6 +39,29 @@ describe("Claude judge", () => {
     expect((ask as any).mock.calls.map((c: any[]) => c[0].model)).toEqual(["auto", "claude-haiku-5-5"]);
   });
 
+  it("spots a tangent with the session, the chain above it and recent chat", async () => {
+    const draft = { title: " Tram passes ", scope: "Pick one.", justification: "Changes my budget." };
+    const ask = vi.fn(async () => ({ tangent: true, ...draft })) as unknown as Ask;
+    const check = {
+      title: "Day plans", scope: "Four days planned.", why: "Trip is soon.", above: ["Lisbon trip: 4 days"],
+      recent: [{ role: "assistant" as const, text: "Start in Alfama." }], message: "Which tram pass?",
+    };
+    expect(await createClaudeJudge(ask).spotTangent(check)).toEqual({ ...draft, title: "Tram passes" });
+    const prompt = (ask as any).mock.calls[0][0].prompt as string;
+    expect(prompt).toContain("- Lisbon trip: 4 days");
+    expect(prompt).toContain("Current session: Day plans");
+    expect(prompt).toContain("Tutor: Start in Alfama.");
+    expect(prompt).toContain("New message from the learner: Which tram pass?");
+  });
+
+  it("returns null when it isn't a tangent, or the draft is incomplete", async () => {
+    const check = { title: "t", scope: "s", why: "w", above: [], recent: [], message: "m" };
+    const no = (async () => ({ tangent: false, title: "", scope: "", justification: "" })) as unknown as Ask;
+    expect(await createClaudeJudge(no).spotTangent(check)).toBeNull();
+    const half = (async () => ({ tangent: true, title: "x", scope: " ", justification: "y" })) as unknown as Ask;
+    expect(await createClaudeJudge(half).spotTangent(check)).toBeNull();
+  });
+
   it("lets a failed Claude call surface as an error, not a verdict", async () => {
     const ask = (async () => { throw new Error("not signed in"); }) as unknown as Ask;
     await expect(createClaudeJudge(ask).reviewJustification(review)).rejects.toThrow("not signed in");

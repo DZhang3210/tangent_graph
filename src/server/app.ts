@@ -128,14 +128,24 @@ export function createApp(deps: AppDeps) {
   async function chat(req: IncomingMessage, res: ServerResponse, nodeId: NodeId) {
     const message = str(await body(req), "message").trim();
     if (!message) throw new HttpError(400, "message can't be empty.");
-    const g = await activeGraph();
+    let g = await activeGraph();
     if (!g.nodes[nodeId]) throw new HttpError(404, `There's no node "${nodeId}".`);
-    const log = await chats.load(g.id, nodeId);
+    let log = await chats.load(g.id, nodeId);
     const emit = sse(res);
     const abort = new AbortController();
     res.on("close", () => abort.abort());
     let text = "";
     try {
+      // Only the cursor can fork, so only messages sent there are checked for tangents.
+      if (nodeId === g.cursor) {
+        emit("status", { text: "Checking scope…" });
+        const t = await service.branchIfTangent(message, log.messages.slice(-6).map(m => ({ role: m.role, text: m.text })));
+        if (abort.signal.aborted) return void res.end();
+        if (t.branched) {
+          g = t.graph; nodeId = g.cursor; log = await chats.load(g.id, nodeId);
+          emit("branched", { graph: g, nodeId });
+        } else if (t.feedback) emit("notice", { text: t.feedback });
+      }
       const r = await claude.streamChat({
         system: tutorSystem(g, nodeId),
         message: log.sessionId ? message : withHistory(log.messages, message),
@@ -146,11 +156,28 @@ export function createApp(deps: AppDeps) {
       const at = new Date().toISOString();
       const next = { sessionId: r.sessionId, messages: [...log.messages, { role: "user" as const, text: message, at }, { role: "assistant" as const, text, at }] };
       await chats.save(g.id, nodeId, next);
-      emit("done", { sessionId: r.sessionId });
+      emit("done", { sessionId: r.sessionId, nodeId });
     } catch (e) {
       emit("error", { message: (e as Error).message });
     }
     res.end();
+  }
+
+  /** Undo the empty branch at the cursor, and move its chat back to the parent. */
+  async function undo(res: ServerResponse) {
+    const before = await activeGraph(), id = before.cursor, parentId = before.nodes[id]!.parentId;
+    const r = await service.undo();
+    if (r.ok && parentId !== null) {
+      const moved = await chats.load(before.id, id);
+      if (moved.messages.length) {
+        const parent = await chats.load(before.id, parentId);
+        // No session id: the parent's Claude session never saw these messages, so the next
+        // message re-sends the whole transcript.
+        await chats.save(before.id, parentId, { messages: [...parent.messages, ...moved.messages] });
+      }
+      await chats.remove(before.id, id);
+    }
+    return reply(res, Promise.resolve(r));
   }
 
   async function side(req: IncomingMessage, res: ServerResponse) {
@@ -221,6 +248,7 @@ export function createApp(deps: AppDeps) {
       }
       if (chatPath && m === "POST") return await chat(req, res, decodeURIComponent(chatPath[1]!));
       if (m === "POST" && p === "/api/side") return await side(req, res);
+      if (m === "POST" && p === "/api/graph/undo") return await undo(res);
 
       json(res, 404, { message: "Not found." });
     } catch (e) {

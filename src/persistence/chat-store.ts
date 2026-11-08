@@ -1,7 +1,7 @@
 // Chat transcripts, kept apart from the graph (chat isn't a domain rule, just a record).
 // data/chats/<graphId>/<nodeId>.json → { sessionId?, messages[] }
 
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { GraphId, NodeId } from "../core/index.js";
@@ -23,6 +23,8 @@ export interface ChatStore {
   save(graphId: GraphId, nodeId: NodeId, log: ChatLog): Promise<void>;
   /** Every node's log in a graph, for search. */
   all(graphId: GraphId): Promise<Record<NodeId, ChatLog>>;
+  /** Deletes a node's log, e.g. when an undone branch's chat moves to its parent. */
+  remove(graphId: GraphId, nodeId: NodeId): Promise<void>;
 }
 
 const EMPTY: ChatLog = { messages: [] };
@@ -54,6 +56,7 @@ export function jsonChatStore(dataDir: string): ChatStore {
       for (const f of files.filter(f => f.endsWith(".json"))) out[f.slice(0, -5)] = await read(path.join(dirOf(g), f));
       return out;
     },
+    remove: (g, n) => rm(fileOf(g, n), { force: true }),
   };
 }
 
@@ -63,6 +66,7 @@ export function memoryChatStore(): ChatStore {
   return {
     load: async (g, n) => structuredClone(logs.get(key(g, n)) ?? EMPTY),
     save: async (g, n, log) => { logs.set(key(g, n), structuredClone(log)); },
+    remove: async (g, n) => { logs.delete(key(g, n)); },
     all: async g => Object.fromEntries([...logs].filter(([k]) => k.startsWith(`${g}/`)).map(([k, v]) => [k.slice(g.length + 1), v])),
   };
 }

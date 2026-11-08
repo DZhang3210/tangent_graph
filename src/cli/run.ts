@@ -30,6 +30,7 @@ Branches (always at the cursor)
   abandon <summary>     Why it went off-purpose             } and moves the cursor up
   defer <summary>       Where you stopped and why           }
   complete <summary>    Finish the main task (at the root; abandon there closes it too)
+  undo                  Remove the branch you're in, if it's still empty (no notes or branches)
 
 Notes (any node, any time)
   note <text> [--node <id>]                           Add a note (to the cursor by default)
@@ -99,6 +100,8 @@ export async function run(argv: string[], opts: RunOptions): Promise<number> {
     case "merge": case "abandon": case "defer": case "complete":
       // An empty summary is passed through on purpose: core rejects it with a clear error.
       return show(svc[cmd](text));
+    case "undo":
+      return show(svc.undo());
     case "note":
       return show(svc.note(text, o.node), g => renderNode(g, o.node ?? g.cursor));
     case "strike":
