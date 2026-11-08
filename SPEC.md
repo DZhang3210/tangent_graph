@@ -55,10 +55,12 @@ are notes or chat inside the same node. Only a question outside the scope become
   *good enough* is a judgment made by the **judge** (see below), before the fork is applied.
 - The new branch is `active`, becomes a child of the cursor, and the cursor moves into it.
 - The parent is now **locked** (rule 5).
+- A fork can come from you, or from Claude spotting a tangent in chat (judgment 3 below).
+  Either way it's the same fork, with the same rules and the same justification check.
 
 ### 3. Navigation is a stack (LIFO)
 - The cursor moves only by **fork** (down into a new branch), **continue** (down into a new
-  linked branch) and **resolve** (back up to the parent).
+  linked branch), **resolve** and **undo** (back up to the parent).
 - There is no free "up" or "jump": to get back to a parent you must resolve the branch you're in.
   So you can never leave a deep branch for the root without resolving everything in between.
 - A node can have at most **one unresolved branch** at a time. This follows from the rules above
@@ -117,6 +119,14 @@ Applies to the cursor only, and never to the root.
 - Each main task is its own graph, saved in its own file. One is marked **active**.
 - Switching the active graph doesn't change any graph.
 
+### 11. Undoing a branch
+- Removes a branch that shouldn't have been made, for example one Claude opened for a question
+  that wasn't really a tangent. The cursor goes back to the parent.
+- Applies to the cursor only, and only to a branch that's still **empty**: no notes and no
+  branches of its own, resolved or not. Otherwise `NOT_UNDOABLE`.
+- Unlike resolving, nothing is recorded: the branch is gone, as if it was never forked.
+- Its chat moves back to the parent (chat isn't a domain rule; the server does this).
+
 ## Errors
 
 Every rule violation returns a typed error. Nothing fails silently and nothing throws for an
@@ -135,18 +145,28 @@ expected rule violation.
 | `NOT_CONTINUABLE` | continue on a node that isn't a resolved child of the cursor. |
 | `NOTE_NOT_FOUND` | Striking a note id that doesn't exist on that node. |
 | `NOTE_ALREADY_STRUCK` | Striking a note twice. |
+| `NOT_UNDOABLE` | undo on the root, or on a branch that has notes or branches of its own. |
 
 When several rules fail at once, the error reported follows this order:
 `GRAPH_CLOSED` → `NODE_NOT_FOUND` → `ALREADY_RESOLVED` → `NODE_LOCKED` → `NOT_AT_CURSOR` →
-action-specific checks (`ROOT_CANT_RESOLVE`, `NOT_ROOT`, `NOT_CONTINUABLE`) → `EMPTY_FIELD`.
+action-specific checks (`ROOT_CANT_RESOLVE`, `NOT_ROOT`, `NOT_CONTINUABLE`, `NOT_UNDOABLE`) → `EMPTY_FIELD`.
 This puts the most useful explanation first: "this node is locked by X" says more than
 "you're not at the cursor".
 
 ## Judgments
 
-Two checks need reasoning and are made by a **judge**, not by local code:
+Three checks need reasoning and are made by a **judge**, not by local code:
 1. Is this justification good enough to fork (or continue)?
 2. Is this merge / abandon / defer / close summary substantive?
+3. Is this chat message a **tangent**? It is when it's outside the current session's scope
+   *and* needs more than a quick answer. In-scope questions and quick off-topic facts are not.
+   If it is one, the judge drafts the branch's title, scope and justification.
+
+Spotting a tangent (3) only applies to messages sent at the cursor of an open graph, since
+that's the only place a fork can happen. The draft then goes through check 1 like any fork.
+If it passes, the branch opens and the message is answered there. If spotting fails or the
+draft is rejected, the message is answered in the current session and nothing changes.
+Asking is not a change, so a judge that can't answer (3) doesn't block the chat.
 
 - The judge is an interface with two implementations: a stub that always approves, and one
   backed by Claude Code in headless mode (`claude -p`), used by the web app.

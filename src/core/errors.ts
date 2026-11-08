@@ -12,7 +12,8 @@ export type DomainError =
   | { readonly code: "GRAPH_CLOSED" }
   | { readonly code: "NOT_CONTINUABLE"; readonly nodeId: NodeId; readonly reason: NotContinuableReason }
   | { readonly code: "NOTE_NOT_FOUND"; readonly nodeId: NodeId; readonly noteId: NoteId }
-  | { readonly code: "NOTE_ALREADY_STRUCK"; readonly nodeId: NodeId; readonly noteId: NoteId };
+  | { readonly code: "NOTE_ALREADY_STRUCK"; readonly nodeId: NodeId; readonly noteId: NoteId }
+  | { readonly code: "NOT_UNDOABLE"; readonly nodeId: NodeId; readonly reason: "is-root" | "has-notes" | "has-branches" };
 
 export type DomainErrorCode = DomainError["code"];
 
@@ -35,6 +36,8 @@ export function describeError(e: DomainError): string {
     case "NOT_CONTINUABLE": return `"${e.nodeId}" can't be continued: ${describeNotContinuable(e.reason)}.`;
     case "NOTE_NOT_FOUND": return `There's no note "${e.noteId}" on "${e.nodeId}".`;
     case "NOTE_ALREADY_STRUCK": return `Note "${e.noteId}" is already struck out.`;
+    case "NOT_UNDOABLE": return `"${e.nodeId}" can't be undone: ${
+      { "is-root": "it's the main task", "has-notes": "it has notes", "has-branches": "it has branches of its own" }[e.reason]}. End it instead.`;
   }
 }
 

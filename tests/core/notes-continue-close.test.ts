@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  abandon, addNote, complete, continueBranch, defer, fork, getNode, isClosed, merge, strikeNote,
+  abandon, addNote, complete, continueBranch, defer, fork, getNode, isClosed, merge, strikeNote, undoBranch,
 } from "../../src/core/index.js";
 import { branchInput, chain, expectError, newGraph, unwrap } from "./helpers.js";
 
@@ -157,5 +157,43 @@ describe("error precedence", () => {
   it("reports a lock before an empty field", () => {
     const { g, ctx, a } = chain();
     expectError(merge(g, { nodeId: a, summary: "" }, ctx), "NODE_LOCKED");
+  });
+});
+
+describe("undo", () => {
+  it("removes an empty branch and moves the cursor back to its parent", () => {
+    const { g, ctx, a, b } = chain();
+    const g2 = unwrap(undoBranch(g, { nodeId: b }, ctx));
+    expect(g2.nodes[b]).toBeUndefined();
+    expect(g2.cursor).toBe(a);
+    expect(g.nodes[b]).toBeDefined(); // input untouched
+    unwrap(fork(g2, { from: a, ...branchInput("c") }, ctx)); // the parent is unlocked
+  });
+
+  it("only applies to the cursor", () => {
+    const { g, ctx, a } = chain();
+    expectError(undoBranch(g, { nodeId: a }, ctx), "NODE_LOCKED");
+    expectError(undoBranch(g, { nodeId: "nope" }, ctx), "NODE_NOT_FOUND");
+  });
+
+  it("refuses the root, and a branch with notes or resolved branches", () => {
+    const fresh = newGraph();
+    expect(expectError(undoBranch(fresh.g, { nodeId: fresh.root }, fresh.ctx), "NOT_UNDOABLE"))
+      .toMatchObject({ reason: "is-root" });
+    const { g, ctx, a, b } = chain();
+    const noted = unwrap(addNote(g, { nodeId: b, text: "keep this" }, ctx));
+    expect(expectError(undoBranch(noted, { nodeId: b }, ctx), "NOT_UNDOABLE")).toMatchObject({ reason: "has-notes" });
+    const merged = unwrap(merge(g, { nodeId: b, summary: "done" }, ctx));
+    expect(expectError(undoBranch(merged, { nodeId: a }, ctx), "NOT_UNDOABLE")).toMatchObject({ reason: "has-branches" });
+  });
+
+  it("refuses a resolved branch or a closed graph", () => {
+    const { g, ctx, root } = newGraph();
+    const g1 = unwrap(fork(g, { from: root, ...branchInput() }, ctx));
+    const b = g1.cursor;
+    const g2 = unwrap(merge(g1, { nodeId: b, summary: "done" }, ctx));
+    expectError(undoBranch(g2, { nodeId: b }, ctx), "ALREADY_RESOLVED");
+    const closed = unwrap(complete(g2, { nodeId: root, summary: "Sent." }, ctx));
+    expectError(undoBranch(closed, { nodeId: b }, ctx), "GRAPH_CLOSED");
   });
 });

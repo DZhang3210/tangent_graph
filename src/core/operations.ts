@@ -3,7 +3,7 @@
 
 import type { DomainError } from "./errors.js";
 import { err, ok, type Result } from "./result.js";
-import { getNode, isClosed, isRoot, openBranchOf } from "./queries.js";
+import { branchesOf, getNode, isClosed, isRoot, openBranchOf } from "./queries.js";
 import {
   SCHEMA_VERSION,
   type BranchNode, type Ctx, type Graph, type GraphNode, type NodeId, type Note, type NoteId,
@@ -88,6 +88,20 @@ export function continueBranch(g: Graph, input: ContinueInput, ctx: Ctx): Outcom
   const t = requireText([["title", input.title ?? source.title], ["scope", input.scope], ["justification", input.justification]]);
   if (!t.ok) return t;
   return ok(addBranch(g, from.value.id, { ...t.value, continuesFrom: source.id, seq: (source.seq ?? 1) + 1 }, ctx));
+}
+
+export interface UndoInput { nodeId: NodeId }
+
+/** Removes an empty branch at the cursor, as if it was never forked. */
+export function undoBranch(g: Graph, input: UndoInput, _ctx: Ctx): Outcome {
+  const n = structural(g, input.nodeId);
+  if (!n.ok) return n;
+  const node = n.value, id = node.id;
+  if (node.parentId === null) return err({ code: "NOT_UNDOABLE", nodeId: id, reason: "is-root" });
+  if (node.notes.length) return err({ code: "NOT_UNDOABLE", nodeId: id, reason: "has-notes" });
+  if (branchesOf(g, id).length) return err({ code: "NOT_UNDOABLE", nodeId: id, reason: "has-branches" });
+  const { [id]: _gone, ...nodes } = g.nodes;
+  return ok({ ...g, nodes, cursor: node.parentId });
 }
 
 // ---------- resolving and closing ----------
