@@ -260,6 +260,29 @@
   .sq-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 24px;
     border-bottom: 1px solid var(--border); min-height: 61px; }
   .sq-head > div { flex: 1; min-width: 0; }
+  /* Side question tabs (full page keeps several open at once) */
+  .sq-head { padding-left: 12px; gap: 6px; }
+  .sq-tabs { flex: 1; min-width: 0; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .sqtab { flex: 0 1 auto; min-width: 0; max-width: 180px; display: flex; align-items: center; gap: 4px;
+    font: inherit; font-size: 12.5px; color: var(--muted); background: none; border: 1px solid transparent;
+    border-radius: 7px; padding: 4px 4px 4px 9px; cursor: pointer; }
+  .sqtab span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sqtab:hover { background: var(--hover); color: var(--text); }
+  .sqtab.on { color: var(--text); background: var(--bg); border-color: var(--border); }
+  .sqtab i { flex: none; font-style: normal; font-size: 10px; width: 16px; height: 16px; display: grid; place-items: center;
+    border-radius: 4px; color: var(--faint); }
+  .sqtab i:hover { background: var(--hover); color: var(--text); }
+  #sqNew { margin: 0; font-size: 16px; }
+
+  /* Quarter page: a context-free quick ask that covers everything */
+  #quick { position: fixed; inset: 0; z-index: 25; background: var(--bg); overflow: auto; }
+  #quick[hidden] { display: none; }
+  .quick-in { max-width: 680px; margin: 0 auto; padding: 18px 16px 28px; display: flex; flex-direction: column; gap: 18px; }
+  .quick-in .box { padding: 10px 14px; }
+  .quick-hint { margin: -8px 2px 0; font-size: 11.5px; color: var(--faint); }
+  .quick-hint kbd { font-size: 10.5px; }
+  #quickBody { display: flex; flex-direction: column; gap: 18px; }
+  #quickBody .msg.ai { font-size: 14.5px; }
   .tbtn:disabled { opacity: .35; cursor: default; }
   .tbtn:disabled:hover { background: var(--bg); color: var(--muted); border-color: var(--border); }
   .sq-scroll { flex: 1; overflow: auto; min-height: 0; }
@@ -491,6 +514,7 @@
         <span><kbd>f</kbd> fork a tangent</span><span><kbd>u</kbd> undo a branch</span><span><kbd>r</kbd> end branch / close task</span><span><kbd>n</kbd> add a note</span><span><kbd>z</kbd> fold</span><span><kbd>x</kbd> hide</span><span><kbd>H</kbd> hide resolved</span></div>
       <div class="kgroup"><b>View</b>
         <span><kbd>i</kbd> type a reply</span><span><kbd>o</kbd> details</span><span><kbd>\</kbd> sidebar</span>
+        <span><kbd>Alt 1</kbd><kbd>2</kbd><kbd>3</kbd> full / half / quarter page</span>
         <span>Select text → side question</span><span>Right-click a row for more</span></div>
     </div>
     <button id="keysBtn" type="button" aria-expanded="false">Keys</button>
@@ -530,19 +554,23 @@
 </div>
 <div id="modal" hidden><div class="sheet" role="dialog" aria-modal="true"></div></div>
 <button id="selTip" type="button" hidden>Side question</button>
+<section id="quick" hidden>
+  <div class="quick-in">
+    <div class="box"><textarea id="quickInput" rows="1" placeholder="Ask anything…" autocomplete="off"></textarea></div>
+    <p class="quick-hint">No context, not saved. <kbd>Esc</kbd> new question · <kbd>Alt 2</kbd> back to your session · <kbd>Alt 1</kbd> full page</p>
+    <div id="quickBody"></div>
+  </div>
+</section>
 <aside id="sq" hidden>
   <div class="sq-resizer" title="Drag to resize"></div>
   <header class="sq-head">
-    <div>
-      <div class="tline"><b>Side question</b>
-        <button id="sqFork" class="tbtn" type="button" title="Make it a tangent" aria-label="Make it a tangent" disabled>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-            <circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="5.5" r="1.5"/>
-            <path d="M5 5v6M11 7c0 2.5-6 2-6 4"/></svg>
-        </button></div>
-      <span>Not saved</span>
-    </div>
-    <button class="icon" id="sqClose" type="button" aria-label="Close side question">✕</button>
+    <div class="sq-tabs" id="sqTabs" role="tablist" aria-label="Side questions"></div>
+    <button class="icon" id="sqNew" type="button" title="New side question (?)" aria-label="New side question">+</button>
+    <button id="sqFork" class="tbtn" type="button" title="Make it a tangent" aria-label="Make it a tangent" disabled>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+        <circle cx="5" cy="3.5" r="1.5"/><circle cx="5" cy="12.5" r="1.5"/><circle cx="11" cy="5.5" r="1.5"/>
+        <path d="M5 5v6M11 7c0 2.5-6 2-6 4"/></svg>
+    </button>
   </header>
   <div class="sq-scroll"><div class="sq-body" id="sqBody"></div></div>
   <div class="sq-foot">
@@ -551,6 +579,7 @@
 </aside>
 
 <script>
+let mode = "full"; // page mode: full, half or quarter (see setMode)
 const LOCK = '<svg class="lk" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
 
 
@@ -1061,6 +1090,8 @@ function overviewHTML(n) {
 
 document.addEventListener("keydown", e => {
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (e.altKey && !mod && /^Digit[123]$/.test(e.code)) { e.preventDefault(); setMode(MODES[+e.code.slice(5) - 1]); return; }
+  if (mode === "quarter") return; // its own input handles everything else
   if (mod && e.shiftKey && k === "f") { e.preventDefault(); openPal("text"); return; }   // search all text
   if (mod && !e.shiftKey && k === "o") { e.preventDefault(); openPal("nodes"); return; } // find a session
   if (mod && !e.shiftKey && k === "k") { e.preventDefault(); openPal("commands"); return; } // command palette
@@ -1081,7 +1112,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "n") { e.preventDefault(); focusNoteInput(); return; }
   if (e.key === "o") { toggleAbout(); return; }
   if (e.key === "\\") { toggleSide(); return; }
-  if (e.key === "?") { e.preventDefault(); const s = chatSelection(); selTip.hidden = true; toggleSQ(sq.hidden, s ? s.text : ""); return; }
+  if (e.key === "?") { e.preventDefault(); const s = chatSelection(); selTip.hidden = true; openSQ(s ? s.text : ""); return; }
   if (e.key === "i") { const ta = document.querySelector("#composer textarea"); if (ta) { e.preventDefault(); ta.focus(); } return; }
   if (e.key === "z") { toggleFold(viewed); return; }
   if (e.key === "x") { hideNode(viewed); return; }
@@ -1102,7 +1133,7 @@ const store = { get: k => { try { return localStorage.getItem(k); } catch { retu
 const setSideW = w => { document.body.style.setProperty("--side-w", w + "px"); store.set("tg.sideW", w); };
 const toggleSide = (force) => {
   const c = document.body.classList.toggle("collapsed", force);
-  store.set("tg.collapsed", c ? "1" : "");
+  if (mode === "full") store.set("tg.collapsed", c ? "1" : ""); // half page hides it on its own
 };
 if (store.get("tg.sideW")) setSideW(+store.get("tg.sideW"));
 if (store.get("tg.collapsed")) toggleSide(true);
@@ -1128,24 +1159,51 @@ sqResizer.onpointerdown = e => {
   sqResizer.onpointerup = () => { sqResizer.onpointermove = null; document.body.classList.remove("resizing-sq"); };
 };
 
-// ---- Side question: a throwaway chat that never touches the branch or graph ----
-let sqMsgs = [], sqQuote = "";
+// ---- Side questions: throwaway chats that never touch the branch or graph ----
+// Full page keeps several open as tabs, each its own Claude conversation. Nothing is saved.
+let sqTabs = [], sqActive = 0, sqSeq = 0, forkingTab = 0;
 const sq = document.getElementById("sq"), sqInput = document.getElementById("sqInput");
+const activeTab = () => sqTabs.find(t => t.id === sqActive);
+const tabLabel = t => (t.msgs.find(m => m.me)?.text || t.quote || "New question").replace(/\s+/g, " ").slice(0, 80);
+function newTab(quote = "") {
+  const t = { id: ++sqSeq, quote, msgs: [], session: null, nodeId: quote ? viewed : null };
+  sqTabs.push(t); sqActive = t.id;
+  return t;
+}
 function drawSQ() {
-  const quote = sqQuote ? `<blockquote class="sq-quote">${esc(sqQuote.length > 600 ? sqQuote.slice(0, 600) + "…" : sqQuote)}</blockquote>` : "";
-  document.getElementById("sqBody").innerHTML = quote + (sqMsgs.length
-    ? sqMsgs.map(msgHTML).join("")
-    : `<p class="empty">Ask about ${sqQuote ? "this passage" : "anything"}. It won't be saved to the branch, and closing clears it.</p>`);
-  document.getElementById("sqFork").disabled = !sqMsgs.length;
+  const t = activeTab() || newTab();
+  document.getElementById("sqTabs").innerHTML = sqTabs.map(x =>
+    `<button class="sqtab${x.id === sqActive ? " on" : ""}" type="button" role="tab" data-id="${x.id}" title="${esc(tabLabel(x))}">` +
+    `<span>${esc(tabLabel(x))}</span><i data-close="${x.id}" title="Close">✕</i></button>`).join("");
+  document.querySelectorAll(".sqtab").forEach(b => b.onclick = e => {
+    const close = e.target.closest("[data-close]");
+    if (close) return closeSQTab(+close.dataset.close);
+    sqActive = +b.dataset.id; drawSQ(); sqInput.focus();
+  });
+  const quote = t.quote ? `<blockquote class="sq-quote">${esc(t.quote.length > 600 ? t.quote.slice(0, 600) + "…" : t.quote)}</blockquote>` : "";
+  document.getElementById("sqBody").innerHTML = quote + (t.msgs.length
+    ? t.msgs.map(msgHTML).join("")
+    : `<p class="empty">Ask about ${t.quote ? "this passage" : "anything"}. Side questions aren't saved; closing a tab clears it.</p>`);
+  document.getElementById("sqFork").disabled = !t.msgs.length;
   const b = document.querySelector(".sq-scroll"); b.scrollTop = b.scrollHeight;
 }
-function toggleSQ(open = sq.hidden, quote = "") {
-  sq.hidden = !open;
-  document.body.classList.toggle("sq-open", open);
-  sqSession = null; // every side question starts a fresh, throwaway Claude conversation
-  if (open) { sqQuote = quote; sqMsgs = []; drawSQ(); sqInput.focus(); } else { sqMsgs = []; sqQuote = ""; }
+/** Opens a side question (in full page), reusing the current tab if it's still empty. */
+function openSQ(quote = "") {
+  if (mode !== "full") setMode("full");
+  const t = activeTab();
+  if (t && !t.msgs.length) { t.quote = quote; t.nodeId = quote ? viewed : null; } else newTab(quote);
+  drawSQ(); sqInput.focus();
 }
-let sqSession = null;
+function closeSQTab(id) {
+  const i = sqTabs.findIndex(t => t.id === id);
+  if (i < 0) return;
+  sqTabs.splice(i, 1);
+  if (sqActive === id) sqActive = (sqTabs[i] || sqTabs[i - 1])?.id || newTab().id;
+  drawSQ();
+}
+/** Side questions belong to the main task they were asked in. */
+function clearSQ() { sqTabs = []; sqActive = 0; drawSQ(); }
+function showSQ(on) { sq.hidden = !on; document.body.classList.toggle("sq-open", on); }
 
 // Highlight text in the chat → a small "Side question" tooltip appears above it.
 const selTip = document.getElementById("selTip");
@@ -1169,25 +1227,26 @@ selTip.onmousedown = e => e.preventDefault(); // keep the selection while clicki
 selTip.onclick = () => {
   const sel = chatSelection();
   selTip.hidden = true;
-  toggleSQ(true, sel ? sel.text : "");
+  openSQ(sel ? sel.text : "");
   getSelection().removeAllRanges();
 };
-document.getElementById("sqClose").onclick = () => toggleSQ(false);
+document.getElementById("sqNew").onclick = () => { newTab(); drawSQ(); sqInput.focus(); };
 sqInput.onkeydown = e => {
-  if (e.key === "Escape") return toggleSQ(false);
+  if (e.key === "Escape") return sqInput.blur();
   if (e.key !== "Enter" || e.shiftKey) return;
   e.preventDefault();
-  const text = sqInput.value.trim();
-  if (!text) return;
+  const text = sqInput.value.trim(), t = activeTab();
+  if (!text || !t) return;
   sqInput.value = "";
-  sqMsgs.push({ me: 1, text });
-  const reply = { text: "", pending: true }, mine = sqMsgs;
-  sqMsgs.push(reply); drawSQ();
-  streamSSE("/api/side", { nodeId: viewed, quote: sqQuote || undefined, message: text, sessionId: sqSession || undefined }, chunk => {
-    reply.text += chunk; if (sqMsgs === mine) drawSQ();
-  }).then(r => { if (sqMsgs === mine) sqSession = r.sessionId; })
+  t.nodeId ||= viewed;
+  const reply = { text: "", pending: true };
+  t.msgs.push({ me: 1, text }, reply); drawSQ();
+  const redraw = () => { if (sqActive === t.id && sqTabs.includes(t)) drawSQ(); };
+  streamSSE("/api/side", { nodeId: t.nodeId, quote: t.quote || undefined, message: text, sessionId: t.session || undefined }, chunk => {
+    reply.text += chunk; redraw();
+  }).then(r => { t.session = r.sessionId; })
     .catch(e => { reply.err = true; reply.text = e.message; })
-    .finally(() => { reply.pending = false; if (sqMsgs === mine) drawSQ(); });
+    .finally(() => { reply.pending = false; redraw(); });
 };
 
 // ---- Modal sheet: fork / continue a tangent, start a main task ----
@@ -1207,6 +1266,7 @@ function verdictHTML(e, rejectedTitle = "Needs a stronger reason") {
 
 /** New tangent from the cursor, or (with continueFrom) a #2 of a resolved branch. */
 function openFork({ prefill = "", continueFrom = null } = {}) {
+  forkingTab = 0;
   if (graph.status !== "active") return toast("This main task is closed. Only notes can be added.");
   const parent = byId[graph.cursor], source = continueFrom && byId[continueFrom];
   sheet.innerHTML = `
@@ -1243,7 +1303,8 @@ function openFork({ prefill = "", continueFrom = null } = {}) {
     try {
       if (source) await act("/api/graph/continue", { source: source.id, scope: val("fScope"), justification: val("fJust"), ...(title ? { title } : {}) }, { quiet: true });
       else await act("/api/graph/fork", { title, scope: val("fScope"), justification: val("fJust") }, { quiet: true });
-      closeModal(); toggleSQ(false);
+      const fromTab = forkingTab;
+      closeModal(); if (fromTab) closeSQTab(fromTab);
       CHATS[graph.cursor] = [];
       if (!source) send(title); // the tangent's question becomes the first message
     } catch (e) {
@@ -1356,7 +1417,7 @@ function openNewTask() {
 function enterGraph(g, target) {
   home.hidden = true;
   setGraph(g);
-  folded.clear(); hiddenIds.clear(); toggleSQ(false);
+  folded.clear(); hiddenIds.clear(); clearSQ();
   const to = target && byId[target] ? target : graph.cursor;
   viewed = to;
   render(); view(to);
@@ -1443,7 +1504,10 @@ function commands() {
     { label: "Go back", key: "⌫", run: () => goBack() },
     { label: "Find a session", key: "Ctrl O", run: () => openPal("nodes") },
     { label: "Search all text", key: "Ctrl ⇧ F", run: () => openPal("text") },
-    { label: "Ask a side question", sub: "Throwaway; not saved", run: () => toggleSQ(true) },
+    { label: "Ask a side question", key: "?", sub: "Throwaway; not saved. Opens full page", run: () => openSQ() },
+    ...[["full", "Full page", "Alt 1", "Chat plus side questions"], ["half", "Half page", "Alt 2", "Just the chat"],
+        ["quarter", "Quarter page", "Alt 3", "A quick ask with no context"]].map(([m, l, k, sub]) =>
+      ({ label: l, key: k, sub, why: mode === m ? "You're already in it." : null, run: () => setMode(m) })),
     { label: "Show details", key: "o", run: () => { aboutOpen = true; draw(); } },
     { label: hideResolved ? "Show resolved branches" : "Hide resolved branches", key: "H", run: () => toggleResolved() },
     { label: "Toggle sidebar", key: "\\", run: () => toggleSide() },
@@ -1574,7 +1638,7 @@ function renderHome() {
   document.querySelector("#homeList .task.sel")?.scrollIntoView({ block: "nearest" });
 }
 async function openHome() {
-  closeMenu(); toggleSQ(false);
+  closeMenu();
   homeSearch.value = "";
   home.hidden = false;
   try { await refreshTasks(); } catch (e) { toast(e.message); }
@@ -1610,9 +1674,57 @@ function homeKey(e) {
 }
 
 document.getElementById("sqFork").onclick = () => {
-  const first = sqMsgs.find(m => m.me);
+  const t = activeTab(), first = t?.msgs.find(m => m.me);
   openFork({ prefill: first ? first.text : "" });
+  forkingTab = t?.id || 0; // a successful fork closes this tab
 };
+
+// ---- Page modes: full (chat + side questions), half (just the chat), quarter (quick ask) ----
+// Alt+1/2/3 switch. Resizing the window picks the mode that fits, by how much of the screen
+// it covers; a shortcut wins until the window crosses into another size.
+const MODES = ["full", "half", "quarter"];
+const quick = document.getElementById("quick"), quickInput = document.getElementById("quickInput");
+let quickMsgs = [], quickSession = null, quickRun = 0;
+function setMode(m) {
+  const was = mode;
+  mode = m; document.body.dataset.mode = m;
+  quick.hidden = m !== "quarter";
+  showSQ(m === "full");
+  if (m === "full") { drawSQ(); document.body.classList.toggle("collapsed", store.get("tg.collapsed") === "1"); }
+  if (m === "half") document.body.classList.add("collapsed");
+  if (m === "quarter") { if (was !== "quarter") resetQuick(); quickInput.focus(); }
+  else if (document.activeElement === quickInput) quickInput.blur();
+}
+// Every visit to quarter page starts a new, context-free conversation.
+function resetQuick() { quickMsgs = []; quickSession = null; quickRun++; quickInput.value = ""; drawQuick(); }
+function drawQuick() {
+  document.getElementById("quickBody").innerHTML = quickMsgs.map(msgHTML).join("");
+}
+quickInput.onkeydown = e => {
+  if (e.key === "Escape") { e.preventDefault(); return resetQuick(); }
+  if (e.key !== "Enter" || e.shiftKey) return;
+  e.preventDefault();
+  const text = quickInput.value.trim();
+  if (!text) return;
+  quickInput.value = "";
+  const run = quickRun, reply = { text: "", pending: true };
+  quickMsgs.push({ me: 1, text }, reply); drawQuick();
+  const redraw = () => { if (run === quickRun) drawQuick(); };
+  streamSSE("/api/quick", { message: text, sessionId: quickSession || undefined }, chunk => { reply.text += chunk; redraw(); })
+    .then(r => { if (run === quickRun) quickSession = r.sessionId; })
+    .catch(err => { reply.err = true; reply.text = err.message; })
+    .finally(() => { reply.pending = false; redraw(); });
+};
+const sizeMode = () => {
+  const share = (innerWidth * innerHeight) / Math.max(1, screen.availWidth * screen.availHeight);
+  return share >= 0.6 ? "full" : share >= 0.28 ? "half" : "quarter";
+};
+let sizeSeen = sizeMode();
+setMode(sizeSeen);
+addEventListener("resize", () => {
+  const m = sizeMode();
+  if (m !== sizeSeen) { sizeSeen = m; setMode(m); }
+});
 
 // ---- Start: load the active main task, or show the home screen if there isn't one ----
 async function start() {
