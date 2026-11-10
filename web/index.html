@@ -1090,7 +1090,7 @@ function overviewHTML(n) {
 
 document.addEventListener("keydown", e => {
   const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
-  if (e.altKey && !mod && /^Digit[123]$/.test(e.code)) { e.preventDefault(); setMode(MODES[+e.code.slice(5) - 1]); return; }
+  if (e.altKey && !mod && /^Digit[123]$/.test(e.code)) { e.preventDefault(); setMode(MODES[+e.code.slice(5) - 1], { snap: true }); return; }
   if (mode === "quarter") return; // its own input handles everything else
   if (mod && e.shiftKey && k === "f") { e.preventDefault(); openPal("text"); return; }   // search all text
   if (mod && !e.shiftKey && k === "o") { e.preventDefault(); openPal("nodes"); return; } // find a session
@@ -1507,7 +1507,7 @@ function commands() {
     { label: "Ask a side question", key: "?", sub: "Throwaway; not saved. Opens full page", run: () => openSQ() },
     ...[["full", "Full page", "Alt 1", "Chat plus side questions"], ["half", "Half page", "Alt 2", "Just the chat"],
         ["quarter", "Quarter page", "Alt 3", "A quick ask with no context"]].map(([m, l, k, sub]) =>
-      ({ label: l, key: k, sub, why: mode === m ? "You're already in it." : null, run: () => setMode(m) })),
+      ({ label: l, key: k, sub, why: mode === m ? "You're already in it." : null, run: () => setMode(m, { snap: true }) })),
     { label: "Show details", key: "o", run: () => { aboutOpen = true; draw(); } },
     { label: hideResolved ? "Show resolved branches" : "Hide resolved branches", key: "H", run: () => toggleResolved() },
     { label: "Toggle sidebar", key: "\\", run: () => toggleSide() },
@@ -1680,13 +1680,16 @@ document.getElementById("sqFork").onclick = () => {
 };
 
 // ---- Page modes: full (chat + side questions), half (just the chat), quarter (quick ask) ----
-// Alt+1/2/3 switch. Resizing the window picks the mode that fits, by how much of the screen
-// it covers; a shortcut wins until the window crosses into another size.
+// Alt+1/2/3 switch (and, in the desktop app, snap the window to fit). Resizing the window picks
+// the mode that fits, by how much of the screen it covers; a shortcut wins until the window
+// crosses into another size.
 const MODES = ["full", "half", "quarter"];
 const quick = document.getElementById("quick"), quickInput = document.getElementById("quickInput");
 let quickMsgs = [], quickSession = null, quickRun = 0;
-function setMode(m) {
+function setMode(m, { snap = false } = {}) {
   const was = mode;
+  // In the desktop app, choosing a mode on purpose also moves the window to fit it.
+  if (snap) window.tangentApp?.snap(m);
   mode = m; document.body.dataset.mode = m;
   quick.hidden = m !== "quarter";
   showSQ(m === "full");
@@ -1721,6 +1724,7 @@ const sizeMode = () => {
 };
 let sizeSeen = sizeMode();
 setMode(sizeSeen);
+window.tangentApp?.onSetMode(m => setMode(m, { snap: true })); // the tray menu
 addEventListener("resize", () => {
   const m = sizeMode();
   if (m !== sizeSeen) { sizeSeen = m; setMode(m); }

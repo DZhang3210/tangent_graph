@@ -21,11 +21,14 @@ src/
   server/       Local HTTP API + static UI. `npm run dev`.
   cli/          Tiny command-line front end over the service.
 web/            The UI: one HTML file, no build step. Talks only to src/server.
+desktop/        The Electron app: starts the server, shows web/ in its own window, tray,
+                Ctrl+Alt+T to show/hide, and snaps the window for full/half/quarter page.
 tests/          Vitest tests, mirroring src/.
 data/           Your graphs and chats (git-ignored).
 ```
 
 Dependencies only point inward: `server, cli → service → (core, judge, persistence)`;
+`desktop` runs the server as a child process and talks to it over HTTP only;
 `judge, server → claude`; everything else → `core` for types.
 **`core` imports nothing outside `core`.**
 
@@ -63,7 +66,12 @@ npm run typecheck     # tsc --noEmit
 npm run check         # typecheck + tests; run before every commit
 npm run dev           # the web app at http://localhost:5179
 npm run tg -- <cmd>   # the CLI, e.g. npm run tg -- status
+npm run app           # the desktop app (reuses a running dev server, or starts its own)
+npm run shortcuts     # add Start menu (with Ctrl+Alt+T) and desktop shortcuts
 ```
+
+The desktop app's server writes to `data/server.log`. Closing the window hides it to the tray;
+quit from the tray menu.
 
 Environment variables (server and CLI):
 
