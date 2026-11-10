@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Graph, GraphNode, NodeId, Result } from "../core/index.js";
 import type { ChatRequest } from "../claude/headless.js";
-import { sideSystem, tutorSystem, withHistory } from "../chat/prompts.js";
+import { QUICK_SYSTEM, sideSystem, tutorSystem, withHistory } from "../chat/prompts.js";
 import { MODELS, isModelId } from "../claude/models.js";
 import type { ChatStore, GraphStore, SettingsStore } from "../persistence/index.js";
 import { describeServiceError, type Service, type ServiceError } from "../service/index.js";
@@ -183,17 +183,22 @@ export function createApp(deps: AppDeps) {
     return reply(res, Promise.resolve(r));
   }
 
-  async function side(req: IncomingMessage, res: ServerResponse) {
+  /** Side questions (about a node) and quick asks (no context at all). Neither is saved. */
+  async function throwaway(req: IncomingMessage, res: ServerResponse, kind: "side" | "quick") {
     const b = await body(req);
     const message = str(b, "message").trim(), nodeId = str(b, "nodeId"), sessionId = optStr(b, "sessionId"), quote = optStr(b, "quote");
     if (!message) throw new HttpError(400, "message can't be empty.");
-    const g = await activeGraph();
-    if (!g.nodes[nodeId]) throw new HttpError(404, `There's no node "${nodeId}".`);
+    let system = QUICK_SYSTEM;
+    if (kind === "side") {
+      const g = await activeGraph();
+      if (!g.nodes[nodeId]) throw new HttpError(404, `There's no node "${nodeId}".`);
+      system = sideSystem(g, nodeId, quote);
+    }
     const emit = sse(res);
     const abort = new AbortController();
     res.on("close", () => abort.abort());
     try {
-      const r = await claude.streamChat({ system: sideSystem(g, nodeId, quote), message, ...(sessionId ? { sessionId } : {}), model: (await settings.get()).model, signal: abort.signal },
+      const r = await claude.streamChat({ system, message, ...(sessionId ? { sessionId } : {}), model: (await settings.get()).model, signal: abort.signal },
         t => emit("delta", { text: t }));
       emit("done", { sessionId: r.sessionId });
     } catch (e) { emit("error", { message: (e as Error).message }); }
@@ -250,7 +255,8 @@ export function createApp(deps: AppDeps) {
         return json(res, 200, await chats.load(g.id, decodeURIComponent(chatPath[1]!)));
       }
       if (chatPath && m === "POST") return await chat(req, res, decodeURIComponent(chatPath[1]!));
-      if (m === "POST" && p === "/api/side") return await side(req, res);
+      if (m === "POST" && p === "/api/side") return await throwaway(req, res, "side");
+      if (m === "POST" && p === "/api/quick") return await throwaway(req, res, "quick");
       if (m === "POST" && p === "/api/graph/undo") return await undo(res);
 
       json(res, 404, { message: "Not found." });

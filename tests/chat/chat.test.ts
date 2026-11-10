@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { sideSystem, TEACHING_RULES, tutorSystem, withHistory } from "../../src/chat/prompts.js";
+import { QUICK_SYSTEM, sideSystem, TEACHING_RULES, tutorSystem, withHistory } from "../../src/chat/prompts.js";
 import { merge } from "../../src/core/index.js";
 import { jsonChatStore } from "../../src/persistence/index.js";
 import { chain, unwrap } from "../core/helpers.js";
@@ -24,6 +24,7 @@ describe("chat prompts", () => {
     expect(TEACHING_RULES).toMatch(/at most one short follow-up/);
     expect(TEACHING_RULES).toMatch(/short overview of only the key ideas/);
     expect(sideSystem(g, b)).toMatch(/answer exactly what was asked/);
+    expect(QUICK_SYSTEM).toContain(TEACHING_RULES);
   });
 
   it("keep an off-topic message that wasn't branched to a short answer", () => {

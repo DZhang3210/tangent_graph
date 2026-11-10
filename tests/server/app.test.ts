@@ -124,6 +124,16 @@ describe("server", () => {
     expect((await (await get(`/api/chat/${graph.rootId}`)).json().then(any)).messages).toEqual([]);
   });
 
+  it("answers quick asks with no task context, even with no main task, and saves nothing", async () => {
+    const events = await sse(await post("/api/quick", { message: "What's 2 + 2?" }));
+    expect(events.at(-1)).toEqual({ event: "done", data: { sessionId: "session-1" } });
+    expect(calls[0]!.system).toContain("quick-answer box");
+    expect(calls[0]!.system).not.toContain("Session:");
+    await sse(await post("/api/quick", { message: "And 3 + 3?", sessionId: "session-1" }));
+    expect(calls[1]).toMatchObject({ sessionId: "session-1" });
+    expect((await post("/api/quick", { message: " " })).status).toBe(400);
+  });
+
   it("searches node text, notes and chats across every main task", async () => {
     const { graph } = await (await post("/api/tasks", rootInput)).json().then(any);
     await post("/api/graph/note", { text: "Mention .subscribe() pattern" });

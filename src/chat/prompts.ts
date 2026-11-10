@@ -48,6 +48,15 @@ Context: the learner is in the session "${n.title}" (scope: ${n.scope}).` +
     (quote ? `\n\nThey highlighted this passage and are asking about it:\n"""\n${quote}\n"""` : "");
 }
 
+/**
+ * Quarter-page quick ask: a talking search box. On purpose it knows nothing about the
+ * learner's task, so it can't pull them back into it either.
+ */
+export const QUICK_SYSTEM = `You're a quick-answer box, like a search engine that talks. You know nothing about what the
+person is working on, and you don't ask. Answer the question itself.
+
+${TEACHING_RULES}`;
+
 /** First message of a Claude session that doesn't know the earlier conversation yet. */
 export function withHistory(earlier: readonly ChatMessage[], message: string): string {
   if (!earlier.length) return message;
