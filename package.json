@@ -53,7 +53,7 @@
     "publish": {
       "provider": "github",
       "owner": "DZhang3210",
-      "repo": "tangent-graph",
+      "repo": "tangent_graph",
       "releaseType": "release"
     },
     "win": {

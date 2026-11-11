@@ -7,7 +7,7 @@ import electronUpdater from "electron-updater";
 
 const { autoUpdater } = electronUpdater;
 // Same repo as "build.publish" in package.json (the installer strips that section, so it's repeated here).
-const RELEASES = "https://github.com/DZhang3210/tangent-graph/releases/latest";
+const RELEASES = "https://github.com/DZhang3210/tangent_graph/releases/latest";
 const EVERY_MS = 6 * 60 * 60 * 1000;
 const selfInstall = process.platform !== "darwin";
 
