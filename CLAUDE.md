@@ -22,7 +22,8 @@ src/
   cli/          Tiny command-line front end over the service.
 web/            The UI: one HTML file, no build step. Talks only to src/server.
 desktop/        The Electron app: starts the server, shows web/ in its own window, tray,
-                Ctrl+Alt+T to show/hide, and snaps the window for full/half/quarter page.
+                Ctrl+Alt+T to show/hide, snaps the window for full/half/quarter page, and
+                updates itself from GitHub Releases when installed.
 tests/          Vitest tests, mirroring src/.
 data/           Your graphs and chats (git-ignored).
 ```
@@ -68,10 +69,29 @@ npm run dev           # the web app at http://localhost:5179
 npm run tg -- <cmd>   # the CLI, e.g. npm run tg -- status
 npm run app           # the desktop app (reuses a running dev server, or starts its own)
 npm run shortcuts     # add Start menu (with Ctrl+Alt+T) and desktop shortcuts
+npm run dist          # build the installer for this OS into dist/ (no upload)
 ```
 
 The desktop app's server writes to `data/server.log`. Closing the window hides it to the tray;
 quit from the tray menu.
+
+**Repo copy vs installed app.** `npm run app` runs `src/` with tsx on port 5179 with `./data`.
+The installed app runs a bundled server (`npm run build:server` → `desktop/build/server.mjs`) on
+port 5180, with data in the user folder (`%APPDATA%\Tangent Graph\data`, or
+`~/Library/Application Support/Tangent Graph/data` on Mac). On its first run it copies the repo
+copy's `data/` once; the original isn't touched.
+
+**Releasing.** Bump the version and push the tag; GitHub Actions (`.github/workflows/release.yml`)
+builds the Windows installer and the Mac .dmg/.zip and publishes them as a GitHub Release:
+
+```bash
+npm version patch          # or minor / major: updates package.json and tags vX.Y.Z
+git push --follow-tags
+```
+
+Installed Windows apps download the update in the background and offer to restart. The Mac
+build is unsigned (no Apple Developer ID), so it can't replace itself: it says a new version is
+out and opens the download page. First launch on Mac: right-click the app → Open.
 
 Environment variables (server and CLI):
 

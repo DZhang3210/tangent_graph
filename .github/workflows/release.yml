@@ -1,0 +1,33 @@
+# Builds the installers and publishes them to GitHub Releases when you push a version tag:
+#   npm version patch   (bumps package.json and tags, e.g. v0.1.1)
+#   git push --follow-tags
+# Installed apps check those releases for updates.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload the installers
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple Developer ID: build the Mac app unsigned.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

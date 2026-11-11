@@ -7,3 +7,4 @@ data/
 
 # Machine-specific Claude Code settings
 .claude/settings.local.json
+desktop/build/

@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Track learning sessions as a branching graph so tangents stay on purpose.",
+  "author": "DZhang3210",
   "type": "module",
-  "main": "desktop/main.mjs",
+  "main": "desktop/start.mjs",
   "engines": {
     "node": ">=22"
   },
@@ -16,13 +17,78 @@
     "tg": "tsx src/cli/main.ts",
     "dev": "tsx src/server/main.ts",
     "app": "electron .",
-    "shortcuts": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/install-shortcuts.ps1"
+    "shortcuts": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/install-shortcuts.ps1",
+    "build:server": "esbuild src/server/main.ts --bundle --platform=node --format=esm --target=node22 --outfile=desktop/build/server.mjs --log-level=warning",
+    "dist": "npm run check && npm run build:server && electron-builder --publish never",
+    "release": "npm run build:server && electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
+  },
+  "build": {
+    "appId": "com.tangentgraph.app",
+    "productName": "Tangent Graph",
+    "copyright": "Tangent Graph",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "package.json",
+      "desktop/*.mjs",
+      "desktop/*.cjs",
+      "desktop/icon.png",
+      "desktop/build/server.mjs",
+      "web/**"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "DZhang3210",
+      "repo": "tangent-graph",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "desktop/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Tangent Graph",
+      "artifactName": "Tangent-Graph-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/icon-mac.png",
+      "category": "public.app-category.education",
+      "identity": null,
+      "artifactName": "Tangent-Graph-${version}-${arch}.${ext}"
+    }
   }
 }
