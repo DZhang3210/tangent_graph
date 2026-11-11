@@ -2,6 +2,7 @@
 //   TANGENT_DATA   where graphs and chats are saved (default ./data)
 //   TANGENT_JUDGE  "claude" (default) or "stub" (approve everything, no Claude calls)
 //   PORT           default 5179
+//   TANGENT_WEB    folder with index.html (the desktop app sets it; default <repo>/web)
 
 import http from "node:http";
 import path from "node:path";
@@ -24,6 +25,7 @@ const app = createApp({
   chats: jsonChatStore(dataDir),
   settings,
   claude: { status: claudeStatus, streamChat },
+  ...(process.env.TANGENT_WEB ? { webRoot: process.env.TANGENT_WEB } : {}),
 });
 
 http.createServer(app).listen(port, "127.0.0.1", () => {

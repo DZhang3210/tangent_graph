@@ -12,16 +12,26 @@ const RUN_DIR = path.join(os.tmpdir(), "tangent-graph-claude");
 const TIMEOUT_MS = 180_000;
 const BASE_ARGS = ["-p", "--tools", "", "--safe-mode"];
 
+/**
+ * Usual install spots, checked before PATH. Apps started from the Start menu or the Dock
+ * don't always get the PATH a terminal has (on Mac they never do).
+ */
+export function claudeCandidates(platform: NodeJS.Platform, home: string, env: NodeJS.ProcessEnv): string[] {
+  if (platform === "win32") {
+    const p = path.win32;
+    return [
+      p.join(home, ".local", "bin", "claude.exe"),
+      p.join(env.APPDATA ?? "", "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe"),
+    ];
+  }
+  const p = path.posix;
+  return [p.join(home, ".local", "bin", "claude"), p.join(home, ".claude", "local", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"];
+}
+
 /** Where Claude Code is installed. Override with CLAUDE_BIN. */
 export function findClaude(): string {
   if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
-  if (process.platform === "win32") {
-    const candidates = [
-      path.join(os.homedir(), ".local", "bin", "claude.exe"),
-      path.join(process.env.APPDATA ?? "", "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe"),
-    ];
-    for (const exe of candidates) if (existsSync(exe)) return exe;
-  }
+  for (const exe of claudeCandidates(process.platform, os.homedir(), process.env)) if (existsSync(exe)) return exe;
   return "claude"; // on PATH; Node finds claude.exe without a shell
 }
 
