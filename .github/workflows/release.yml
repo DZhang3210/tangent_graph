@@ -12,15 +12,28 @@ permissions:
   contents: write # create the release and upload the installers
 
 jobs:
+  # One release per tag, made before the builds start. If each build created it, their uploads
+  # could race and make two releases with the same tag.
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --title "${TAG#v}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+
   build:
+    needs: release
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
