@@ -12,12 +12,14 @@ permissions:
   contents: write # create the release and upload the installers
 
 jobs:
-  # One release per tag, made before the builds start. If each build created it, their uploads
-  # could race and make two releases with the same tag.
+  # One draft release per tag, made before the builds start. If each build created it, their
+  # uploads could race and make two releases with the same tag. It stays a draft (invisible to
+  # installed apps) until every build has uploaded; electron-builder also refuses to add files to
+  # a release that was published more than 2 hours ago, which a draft avoids.
   release:
     runs-on: ubuntu-latest
     steps:
-      - run: gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --title "${TAG#v}" --generate-notes
+      - run: gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --draft --title "${TAG#v}" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -44,3 +46,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No Apple Developer ID: build the Mac app unsigned.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+  # Only when Windows and Mac both uploaded: make the release public, so installed apps see it.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$TAG" --repo "$REPO" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
